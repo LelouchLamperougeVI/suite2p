@@ -142,7 +142,9 @@ def default_ops():
         "neuropil_extract":
             True,  # whether or not to extract neuropil; if False, Fneu is set to zero
         "inner_neuropil_radius":
-            2,  # number of pixels to keep between ROI and neuropil donut
+            1,  # number of pixels to keep between ROI and neuropil donut
+        "outer_neuropil_radius":
+            8, # added from Uleth ring method
         "min_neuropil_pixels": 350,  # minimum number of pixels in the neuropil
         "lam_percentile":
             50.,  # percentile of lambda within area to ignore when excluding cell pixels for neuropil extraction

@@ -1,4 +1,6 @@
 import setuptools
+import numpy as np
+from Cython.Build import cythonize
 
 install_deps = ["importlib-metadata",
         "natsort",
@@ -42,6 +44,12 @@ test_deps = [
       "pynwb>=2.3.2", #this is needed as test_io contains a test with nwb
       "pytest-qt>3.3.0",
 ]
+
+external_modules = [setuptools.extension.Extension("suite2p.extraction.oasis",
+                                                   sources=["suite2p/extraction/oasis.pyx"],
+                                                   include_dirs=[np.get_include()],
+                                                   language="c++"
+                                                   )]
 
 # check if pyqt/pyside already installed
 try:
@@ -122,4 +130,5 @@ setuptools.setup(
           "tiff2scanimage = scripts.make_tiff_scanimage_compatible:main",
         ]
         },
+    ext_modules=cythonize(external_modules, language_level="3"),
 )

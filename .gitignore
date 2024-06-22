@@ -12,6 +12,8 @@ $RECYCLE.BIN/
 *.mexa64
 *.mexw64
 *.asv
+*.cpp
+*.so
 
 # Windows shortcuts
 *.lnk
@@ -68,3 +70,5 @@ Temporary Items
 
 # data
 data/test_data
+
+.venv*

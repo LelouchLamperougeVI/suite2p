@@ -134,6 +134,8 @@ def preprocess(F: np.ndarray, baseline: str, win_baseline: float, sig_baseline: 
     elif baseline == "constant_prctile":
         Flow = np.percentile(F, prctile_baseline, axis=1)
         Flow = np.expand_dims(Flow, axis=1)
+    elif baseline == 'savgol': # this is the Uleth method
+        print('place holder')
     else:
         Flow = 0.
 

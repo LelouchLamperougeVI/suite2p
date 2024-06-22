@@ -7,7 +7,7 @@ import time
 import numpy as np
 from numba import prange, njit, jit, int64, float32
 from numba.typed import List
-from scipy import stats, signal
+from scipy import stats, signal, sparse
 from .masks import create_masks
 from ..io import BinaryFile
 from .. import default_ops
@@ -115,6 +115,9 @@ def extract_traces(f_in, cell_masks, neuropil_masks, batch_size=500):
         ix += nimg
     print("Extracted fluorescence from %d ROIs in %d frames, %0.2f sec." %
           (ncells, n_frames, time.time() - t0))
+    u, s, v = sparse.linalg.svds(Fneu, k=1) # low rank SVD neuropil extraction
+    Fneu = u @ np.diag(s) @ v
+    print('Applied low rank SVD to neuropil traces')
     return F, Fneu
 
 

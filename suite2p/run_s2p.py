@@ -205,8 +205,12 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                                            sig_baseline=ops["sig_baseline"],
                                            fs=ops["fs"],
                                            prctile_baseline=ops["prctile_baseline"])
-                spks = extraction.oasis(F=dF, batch_size=ops["batch_size"],
-                                        tau=ops["tau"], fs=ops["fs"])
+                # spks = extraction.oasis(F=dF, batch_size=ops["batch_size"],
+                #                         tau=ops["tau"], fs=ops["fs"])
+                spks = np.zeros_like(dF)
+                model = np.zeros_like(dF)
+                for i in range(spks.shape[0]):
+                    model[i, :], _, _, _, _, spks[i, :], _ = extraction.deconvolution.constrained_foopsi(dF[i, :], p=2, verbosity=True, method_deconvolution='oasis', lags=int(np.round(ops['fs']*ops['tau'])))
                 plane_times["deconvolution"] = time.time() - t11
                 print("----------- Total %0.2f sec." % plane_times["deconvolution"])
             else:
@@ -218,8 +222,10 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                 np.save(os.path.join(fpath, "stat.npy"), stat)
                 np.save(os.path.join(fpath, "F.npy"), F)
                 np.save(os.path.join(fpath, "Fneu.npy"), Fneu)
+                np.save(os.path.join(fpath, "dFF.npy"), dF)
                 np.save(os.path.join(fpath, "iscell.npy"), iscell)
                 np.save(os.path.join(ops["save_path"], "spks.npy"), spks)
+                np.save(os.path.join(ops["save_path"], "model.npy"), model)
                 # if second channel, save F_chan2 and Fneu_chan2
                 if "meanImg_chan2" in ops:
                     np.save(os.path.join(fpath, "F_chan2.npy"), F_chan2)

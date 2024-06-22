@@ -4,7 +4,8 @@ Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer a
 from typing import List, Tuple, Dict, Any
 from itertools import count
 import numpy as np
-from scipy.ndimage import percentile_filter
+from scipy.ndimage import percentile_filter, binary_dilation
+from skimage import morphology
 
 from ..detection.sparsedetect import extendROI
 from .. import default_ops
@@ -20,12 +21,18 @@ def create_masks(stats: List[Dict[str, Any]], Ly, Lx, ops=default_ops()):
         for stat in stats
     ]
     if ops.get("neuropil_extract", True):
-        neuropil_masks = create_neuropil_masks(
-            ypixs=[stat["ypix"] for stat in stats],
-            xpixs=[stat["xpix"] for stat in stats], cell_pix=cell_pix,
-            inner_neuropil_radius=ops["inner_neuropil_radius"],
-            min_neuropil_pixels=ops["min_neuropil_pixels"],
-            circular=ops.get("circular_neuropil", False))
+        # neuropil_masks = create_neuropil_masks(
+        #     ypixs=[stat["ypix"] for stat in stats],
+        #     xpixs=[stat["xpix"] for stat in stats], cell_pix=cell_pix,
+        #     inner_neuropil_radius=ops["inner_neuropil_radius"],
+        #     min_neuropil_pixels=ops["min_neuropil_pixels"],
+        #     circular=ops.get("circular_neuropil", True)) # neuropils the uleth way ;)
+        neuropil_masks = ring_neuropils(
+                ypixs=[stat['ypix'] for stat in stats],
+                xpixs=[stat['xpix'] for stat in stats],
+                cell_pix=cell_pix,
+                inner_radius=ops['inner_neuropil_radius'],
+                outer_radius=ops['outer_neuropil_radius'])
     else:
         neuropil_masks = None
     return cell_masks, neuropil_masks
@@ -143,3 +150,37 @@ def create_neuropil_masks(ypixs, xpixs, cell_pix, inner_neuropil_radius,
         idx += 1
 
     return neuropil_ipix
+
+
+def ring_neuropils(ypixs, xpixs, cell_pix, inner_radius=1, outer_radius=8):
+    """
+    Create neuropil masks the ULeth way, as God intended.
+    Suite2p is retarded, doesn't know how to draw a circles.
+    """
+    Ly, Lx = cell_pix.shape
+    inner_struct = morphology.disk(inner_radius, dtype=bool)
+    outer_struct = morphology.disk(outer_radius, dtype=bool)
+    cell_pix = np.flatnonzero(cell_pix)
+
+    neuropil_pix = []
+    for xpix, ypix in zip(xpixs, ypixs):
+        x = xpix - np.min(xpix)
+        y = ypix - np.min(ypix)
+        mask = np.zeros((np.ptp(y)+1, np.ptp(x)+1), dtype=bool)
+        mask[y, x] = True
+        mask = np.pad(mask, outer_radius, constant_values=False)
+        innerMask = binary_dilation(mask, inner_struct)
+        outerMask = binary_dilation(mask, outer_struct)
+        sel = outerMask & ~innerMask
+        y, x = np.nonzero(sel)
+        x = x + np.min(xpix) - outer_radius
+        y = y + np.min(ypix) - outer_radius
+        y = y[(x >= 0) & (x < Lx)]
+        x = x[(x >= 0) & (x < Lx)]
+        x = x[(y >= 0) & (y < Ly)]
+        y = y[(y >= 0) & (y < Ly)]
+        idx = np.ravel_multi_index((y, x), (Ly, Lx))
+        idx = np.setdiff1d(idx, cell_pix)
+        neuropil_pix.append(idx)
+
+    return neuropil_pix

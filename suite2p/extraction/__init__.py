@@ -4,3 +4,5 @@ Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer a
 from .dcnv import preprocess, oasis
 from .extract import create_masks_and_extract, enhanced_mean_image, extract_traces_from_masks, extraction_wrapper
 from .masks import create_cell_mask, create_neuropil_masks, create_cell_pix
+from .deconvolution import constrained_foopsi
+from .oasis import constrained_oasisAR1, oasisAR1
