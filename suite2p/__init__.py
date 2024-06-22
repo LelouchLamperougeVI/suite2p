@@ -8,5 +8,6 @@ from .detection import ROI, detection_wrapper
 from .classification import classify
 from .extraction import extraction_wrapper
 from .registration import registration_wrapper
+from .blat import *
 
 name = "suite2p"
