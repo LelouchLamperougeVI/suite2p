@@ -1,3 +1,7 @@
+"""
+Useful generic helper functions.
+"""
+
 import numpy as np
 from scipy import signal
 from joblib import Parallel, delayed
