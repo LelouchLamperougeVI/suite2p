@@ -15,7 +15,7 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
 
     A = np.moveaxis(A, source=axis, destination=-1)
     og_shape = A.shape
-    A = A.reshape((np.prod(A.shape[:-1]), A.shape[-1]))
+    A = A.reshape((np.prod(A.shape[:-1]).astype(int), A.shape[-1]))
     A = np.array(Parallel(n_jobs=-1, prefer="threads")(delayed(smooth)(v) for v in A))
     A = A.reshape(og_shape)
     A = np.moveaxis(A, source=-1, destination=axis)
@@ -28,8 +28,19 @@ def knnsearch(target, query):
     Distilled version to suite my purpose...
     """
     idx = np.searchsorted(target, query)
-    # ret = [ind if np.abs(target[ind] - query[i]) < np.abs(target[ind - 1] - query[i]) else ind - 1 for i, ind in enumerate(idx)]
     side = np.argmin([np.abs(target[idx] - query), np.abs(target[idx - 1] - query)], axis=0)
     idx[side == 1] -= 1
+    idx[idx == target.shape[-1]] -= 1
     return idx
 
+def fill_gaps(X, gap):
+    """
+    Get continuous segments in logical array by filling in small gaps.
+    """
+    idx = np.flatnonzero(X)
+    gaps = np.flatnonzero((np.diff(idx) <= (gap + 1)) & (np.diff(idx) > 1))
+    for g in gaps:
+        X[idx[g]:idx[g+1]] = True
+
+    return X
+    

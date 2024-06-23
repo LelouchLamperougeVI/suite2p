@@ -1,7 +1,8 @@
 import numpy as np
 import h5py
 from scipy import stats, signal
-from .utils import fast_smooth, knnsearch
+from sklearn.cluster import KMeans
+from .utils import fast_smooth, knnsearch, fill_gaps
 
 def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) -> dict:
     """
@@ -52,9 +53,11 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
         pos = (pos - v_range[0]) / np.diff(v_range) * normalize
 
     # smooth velocity
-    kernel = np.ones((int(fs/twop_fs*2),)) / np.round(fs/twop_fs*2)
-    vel = signal.fftconvolve(pos, kernel, mode='same') / signal.fftconvolve(np.ones_like(pos), kernel, mode='same')
+    vel = fast_smooth(pos, int(fs/twop_fs))
     vel = np.diff(vel) * fs # velocity
+
+    #detect movements
+    mvt = detect_mvt(vel, gaps=.25, fs=fs, prioritize='movement')
     
     # convert cumulative to raw positions from trials
     trial_idx, _ = ts_extractor(trial)
@@ -68,20 +71,52 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     trial_idx = knnsearch(frame_idx, trial_idx)
     # licks_idx = knnsearch(frame_idx, licks_idx)
 
-    vel = vel[frame_idx]
-    # vel = signal.savgol_filter(vel, window_length=int(twop_fs*.1), polyorder=1)
-    
     # decimate
     behaviour = {
         # 'licks': licks_idx,
         'reward': reward_idx,
         'trial': trial_idx,
         'position': pos[frame_idx],
-        'velocity': vel,
+        'velocity': vel[frame_idx],
+        'movement': mvt[frame_idx],
         'ts': frame_idx / fs,
         'fs': twop_fs
     }
     return behaviour
+
+def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
+    """
+    Detect movement epochs.
+    
+    Params
+    ------
+    gaps        fill in jitters to get continuous moving epochs
+                if fs is not specified, this is the number of frames
+    fs          sampling rate (optional)
+    prioritize  either prioritize 'movement' or 'rest' to minimize the
+                number of false negatives
+
+    Return
+    ------
+    mvt         logical array of movement epochs
+    """
+    x = np.abs(vel)
+    x = np.log(x[x > (np.max(vel)*1e-3)])
+    kmeans = KMeans(n_clusters=2).fit(x.reshape(-1, 1))
+    thres = np.abs(np.diff(kmeans.cluster_centers_.flatten())) / 2 + np.min(kmeans.cluster_centers_.flatten())
+    thres = np.exp(thres)
+    
+    mvt = np.abs(vel) > thres
+    if prioritize == "movement":
+        mvt = fill_gaps(mvt, fs*gaps)
+        mvt = ~fill_gaps(~mvt, fs*gaps)
+    elif prioritize == "rest":
+        mvt = ~fill_gaps(~mvt, fs*gaps)
+        mvt = fill_gaps(mvt, fs*gaps)
+    else:
+        raise ValueError(prioritize + ' is not a valid option')
+
+    return mvt
 
 def ts_extractor(t, thres=.1, gapless=False, si=10):
     """

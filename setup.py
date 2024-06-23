@@ -7,73 +7,29 @@ install_deps = ["importlib-metadata",
         "rastermap>=0.9.0",
         "tifffile",
         "torch>=1.13.1",
-        "numpy>=1.24.3",
+        "numpy==1.26",
         "numba>=0.57.0",
         "matplotlib",
         "scipy>=1.9.0",
         "scikit-learn",
         "cellpose",
-        "scanimage-tiff-reader>=1.4.1"
-        ]
-
-gui_deps = [
+        "scanimage-tiff-reader>=1.4.1",
+        "h5py",
         "qtpy",
         "pyqt6",
         "pyqt6.sip",
         "pyqtgraph",
-      ]
+        "jupyter",
+        "ipympl",
+        "scikit-image",
+        ]
 
-io_deps = [
-    "paramiko",
-    "nd2",
-    "sbxreader",
-    "h5py",
-    "opencv-python-headless",
-    "xmltodict",
-    "dcimg"
-]
-
-nwb_deps = [
-        "pynwb>=2.3.2",
-      ]
-
-test_deps = [
-      "pytest",
-      "tenacity",
-      "tqdm",
-      "pynwb>=2.3.2", #this is needed as test_io contains a test with nwb
-      "pytest-qt>3.3.0",
-]
 
 external_modules = [setuptools.extension.Extension("suite2p.extraction.oasis",
                                                    sources=["suite2p/extraction/oasis.pyx"],
                                                    include_dirs=[np.get_include()],
                                                    language="c++"
                                                    )]
-
-# check if pyqt/pyside already installed
-try:
-    import PyQt5
-    gui_deps.remove("pyqt6")
-    gui_deps.remove("pyqt6.sip")
-except:
-    pass
-
-try:
-    import PySide2
-    gui_deps.remove("pyqt6")
-    gui_deps.remove("pyqt6.sip")
-except:
-    pass
-
-try:
-    import PySide6
-    gui_deps.remove("pyqt6")
-    gui_deps.remove("pyqt6.sip")
-except:
-    pass
-
-all_deps = gui_deps + nwb_deps + test_deps + io_deps 
 
 try:
     import torch
@@ -97,38 +53,19 @@ setuptools.setup(
     url="https://github.com/MouseLand/suite2p",
     packages=setuptools.find_packages(),
     setup_requires=[
-      "pytest-runner",
-      "setuptools_scm",
+      "numpy==1.26",
     ],
-    use_scm_version=True,
     install_requires=install_deps,
-    tests_require=test_deps,
-    extras_require={
-      "docs": [
-        "sphinx>=3.0",
-        "sphinxcontrib-apidoc",
-        "sphinx_rtd_theme",
-        "sphinx-prompt",
-        "sphinx-autodoc-typehints",
-      ],
-      "gui": gui_deps,
-      "nwb": nwb_deps,
-      "io": io_deps,
-      "tests": test_deps,
-      "all": all_deps,
-    },
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-      entry_points = {
+    entry_points = {
         "console_scripts": [
-          "suite2p = suite2p.__main__:main",
-          "reg_metrics = benchmarks.registration_metrics:main",
-          "tiff2scanimage = scripts.make_tiff_scanimage_compatible:main",
+            "suite2p = suite2p.__main__:main",
         ]
-        },
+    },
     ext_modules=cythonize(external_modules, language_level="3"),
 )
