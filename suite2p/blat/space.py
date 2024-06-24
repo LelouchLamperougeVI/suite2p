@@ -1,5 +1,13 @@
+"""
+Spatial analyses.
+TODO:
+- SI place cells detection
+- Trials stability place cells detection
+"""
+
 from . import utils
 import numpy as np
+from tqdm import tqdm
 from sklearn.feature_selection import mutual_info_classif
 
 def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
@@ -12,31 +20,22 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     cum_trial = np.zeros_like(pos)
     cum_trial[behaviour['trial']] = 1
     cum_trial = np.cumsum(cum_trial)
-    cum_trial[cum_trial >= (np.max(cum_trial) - 1)] = 0
+    cum_trial[cum_trial == np.max(cum_trial)] = 0 # reject last trial
 
-    mvt = behaviour['movement']
+    mvt = behaviour['movement'] & (cum_trial != 0)
     pos = pos[mvt]
     cum_trial = cum_trial[mvt]
     spks = spks[:, mvt]
-    
-    idx = np.array([pos, cum_trial]).T
-    ranges = ([0, np.max(pos)], [0, np.max(cum_trial)])
-    occ, _ = np.histogramdd(idx, range=ranges, bins=(bins, np.max(cum_trial).astype(int) + 1))
-    rasters = np.array([np.histogramdd(idx, range=ranges, bins=(bins, np.max(cum_trial).astype(int) + 1), weights=spks[i, :])[0] for i in range(spks.shape[0])])
-    rasters = rasters / occ
-    rasters = rasters[:, :, 1:]
-    rasters[np.isnan(rasters)] = 0
+
+    rasters = rasterize(spks, pos=pos, trials=cum_trial, bins=bins)
     srasters = utils.fast_smooth(rasters, 2, axis=1)
     
-    idx = pos
-    ranges = ([0, np.max(pos)],)
-    occ, _ = np.histogramdd(idx, range=ranges, bins=bins)
-    stack = np.array([np.histogramdd(idx, range=ranges, bins=bins, weights=spks[i, :])[0] for i in range(spks.shape[0])])
-    stack = stack / occ
-    stack[np.isnan(stack)] = 0
+    stack = rasterize(spks, pos, bins=bins)
     sstack = utils.fast_smooth(stack, 2, axis=1)
 
     SI = calc_si(spks, pos)
+    p = permutation_test(spks, func=calc_si, args=(pos,), nperms=10)
+    print(p)
 
     ret = {
         'rasters': rasters,
@@ -50,18 +49,45 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
 
     return ret
 
-def rasterize(spks, pos, trials):
+def rasterize(spks, pos, trials=None, bins=80):
     """
     Generate positional firing rate over trials rasters.
-    Trials must be cumulative, with 0 being rejected. If
-    trials is None, generate stacks instead.
+    Trials must be cumulative. If trials is None, generate
+    stacks instead.
     """
+    if trials is not None:
+        idx = np.array([pos, trials]).T
+        ranges = ([0, np.max(pos)], [np.min(trials), np.max(trials) + 1])
+        bins=(bins, np.ptp(trials).astype(int) + 1)
+    else:
+        idx = pos
+        ranges = ([0, np.max(pos)],)
+    occ, _ = np.histogramdd(idx, range=ranges, bins=bins)
+    rasters = np.array([np.histogramdd(idx, range=ranges, bins=bins, weights=spks[i, :])[0] for i in range(spks.shape[0])])
+    rasters = rasters / occ
+    rasters[np.isnan(rasters)] = 0
 
-def shuffle_spks(spks, shift=None, mode='circ'):
+    return rasters
+
+def permutation_test(spks: np.ndarray, func: callable, nperms=1_000, mode='circ', args=tuple()):
     """
     Shuffle spike trains. Either 'circ' mode or 'burst' shuffler.
-    If shift is None, shuffle by random factor.
+    If shift is None, shuffle by random factor. Calls func at each
+    permutation. func must be of form fun(spks, *args) and must
+    return an array of shape (spks.shape[0],).
     """
+    truth = func(spks, *args)
+    if mode == 'circ':
+        perms = np.zeros((nperms, truth.shape[0]))
+        for i in tqdm(range(nperms), desc='permutation testing...'):
+            shift = np.random.randint(spks.shape[1])
+            spks = np.roll(spks, shift, axis=1)
+            perms[i, :] = func(spks, *args)
+
+    p = np.sum(truth > perms, axis=0) / nperms
+    p[p == 0] = 1/nperms
+    
+    return p
 
 def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, bins=80, KSG=True):
     """
@@ -73,6 +99,6 @@ def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, bins=80, KSG=True):
     bins = np.linspace(0, np.max(pos), bins+1)
     pos = np.digitize(pos, bins=bins)
     spks = utils.fast_smooth(spks, sigma, axis=1)
-    SI = mutual_info_classif(spks.T, pos, discrete_features=False, n_neighbors=3, n_jobs=-1)
+    SI = mutual_info_classif(spks.T, pos, discrete_features=True, n_neighbors=3, n_jobs=-1)
     SI = SI * np.log2(np.exp(1)) # convert nats to bits
     return SI
