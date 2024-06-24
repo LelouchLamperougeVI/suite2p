@@ -6,9 +6,9 @@ TODO:
 """
 
 from . import utils
+from .KSG import ksg_mi
 import numpy as np
 from tqdm import tqdm
-from sklearn.feature_selection import mutual_info_classif
 
 def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     """
@@ -33,8 +33,11 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     stack = rasterize(spks, pos, bins=bins)
     sstack = utils.fast_smooth(stack, 2, axis=1)
 
-    SI = calc_si(spks, pos)
-    p = permutation_test(spks, func=calc_si, args=(pos,), nperms=10)
+    silent = np.sum(spks, axis=1) == 0
+    SI = np.zeros_like(silent)
+    SI[~silent] = calc_si(spks[~silent, :], pos)
+    p = np.ones_like(silent)
+    p[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
     print(p)
 
     ret = {
@@ -89,16 +92,13 @@ def permutation_test(spks: np.ndarray, func: callable, nperms=1_000, mode='circ'
     
     return p
 
-def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, bins=80, KSG=True):
+def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, KSG=True):
     """
     Calculate spatial information (i.e., mutual information)
     Between spike trains and position using the more robust
     KSG estimator. Alternatively, set KSG to False to use
     the traditional Skaggs method.
     """
-    bins = np.linspace(0, np.max(pos), bins+1)
-    pos = np.digitize(pos, bins=bins)
     spks = utils.fast_smooth(spks, sigma, axis=1)
-    SI = mutual_info_classif(spks.T, pos, discrete_features=True, n_neighbors=3, n_jobs=-1)
-    SI = SI * np.log2(np.exp(1)) # convert nats to bits
+    SI = ksg_mi(spks, pos, k=5)
     return SI
