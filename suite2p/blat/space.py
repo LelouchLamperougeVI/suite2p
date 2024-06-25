@@ -1,14 +1,15 @@
 """
 Spatial analyses.
 TODO:
-- SI place cells detection
+- Implement SI Skaggs
 - Trials stability place cells detection
+- Burst shuffler
 """
 
 from . import utils
 from .KSG import ksg_mi
 import numpy as np
-from tqdm import tqdm
+from rich.progress import track
 
 def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     """
@@ -34,11 +35,10 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     sstack = utils.fast_smooth(stack, 2, axis=1)
 
     silent = np.sum(spks, axis=1) == 0
-    SI = np.zeros_like(silent)
+    SI = np.zeros_like(silent, dtype=np.float64)
     SI[~silent] = calc_si(spks[~silent, :], pos)
-    p = np.ones_like(silent)
+    p = np.zeros_like(silent, dtype=np.float64)
     p[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
-    print(p)
 
     ret = {
         'rasters': rasters,
@@ -48,6 +48,7 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
             'stack': sstack,
         },
         'SI': SI,
+        'prob': p,
     }
 
     return ret
@@ -72,7 +73,7 @@ def rasterize(spks, pos, trials=None, bins=80):
 
     return rasters
 
-def permutation_test(spks: np.ndarray, func: callable, nperms=1_000, mode='circ', args=tuple()):
+def permutation_test(spks: np.ndarray, func: callable, nperms=500, mode='circ', args=tuple()):
     """
     Shuffle spike trains. Either 'circ' mode or 'burst' shuffler.
     If shift is None, shuffle by random factor. Calls func at each
@@ -82,13 +83,13 @@ def permutation_test(spks: np.ndarray, func: callable, nperms=1_000, mode='circ'
     truth = func(spks, *args)
     if mode == 'circ':
         perms = np.zeros((nperms, truth.shape[0]))
-        for i in tqdm(range(nperms), desc='permutation testing...'):
+        for i in track(range(nperms), description='permutation testing...'):
             shift = np.random.randint(spks.shape[1])
             spks = np.roll(spks, shift, axis=1)
             perms[i, :] = func(spks, *args)
 
     p = np.sum(truth > perms, axis=0) / nperms
-    p[p == 0] = 1/nperms
+    p[p == 1] = 1 - 1/nperms
     
     return p
 
