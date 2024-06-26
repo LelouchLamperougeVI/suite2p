@@ -14,7 +14,7 @@ from numba.extending import overload, register_jitable
 from numba.core.errors import TypingError
 import warnings
 
-def ksg_mi(x: np.ndarray, y: np.ndarray, k=5) -> np.ndarray:
+def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
     """
     KSG estimator for mutual information.
     This is an implementation of the second algorithm
@@ -28,11 +28,22 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5) -> np.ndarray:
     if y.ndim != 1:
         raise ValueError('y needs to be a vector')
 
-    def job(i):
+    x = zscore(x, axis=1)
+    y = zscore(y)
+    if x.dtype != np.dtype(np.float32): # for speed
+        x = x.astype(np.float32)
+    if y.dtype != np.dtype(np.float32):
+        y = y.astype(np.float32)
+
+    I = np.zeros((x.shape[0],))
+    for i in range(x.shape[0]):
+    # def job(i):
         joint = np.array([x[i, :], y]).T
-        joint, _, _ = nb_unique(joint, axis=0) # sparsify marginals to ensure continuity in Laplacian
-        joint = zscore(joint, axis=0)
-    
+        if method == 1:
+            joint, _, _ = nb_unique(joint, axis=0) # sparsify marginals to ensure continuity in Laplacian
+        elif method == 2:
+            joint = twocol_unique(joint)
+        
         argx = np.argsort(joint[:, 0])
         sortx = joint[argx, 0]
         argy = np.argsort(joint[:, 1])
@@ -49,15 +60,28 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5) -> np.ndarray:
         n[:, 1] = np.searchsorted(sorty, sorty[argy] + e[:, 1], side='right') - \
                     np.searchsorted(sorty, sorty[argy] - e[:, 1], side='left')
 
-        I = digamma(k) - 1/k - np.mean(np.sum(digamma(n), axis=1)) + digamma(n.shape[0])
-        return I
+        I[i] = digamma(k) - 1/k - np.mean(np.sum(digamma(n), axis=1)) + digamma(n.shape[0])
+        # I = digamma(k) - 1/k - np.mean(np.sum(digamma(n), axis=1)) + digamma(n.shape[0])
+        # return I
 
-    I = np.array(Parallel(n_jobs=-1, prefer='threads')(delayed(job)(i) for i in range(x.shape[0])))
+    # I = np.array(Parallel(n_jobs=-1, prefer='threads')(delayed(job)(i) for i in range(x.shape[0])))
         
     if np.any(I < 0):
         warnings.warn('Estimated mutual information contains negatives.', RuntimeWarning)
     
     return I * np.log2(np.exp(1))
+
+def twocol_unique(x: np.ndarray) -> np.ndarray:
+    if x.dtype != np.float32:
+        raise ValueError('x needs to be float32')
+    if x.shape[1] != 2:
+        raise ValueError('x needs to have two columns')
+
+    x = np.ascontiguousarray(x.copy())
+    vect = x.view('float64')
+    _, idx = np.unique(vect.squeeze(), return_index=True)
+
+    return x[idx, :]
 
 """
 Code below was stolen from rishi-kulkarni

@@ -3,17 +3,17 @@ import sys
 import suite2p
 
 db = {
-        'data_path': ['/home/loulou/Documents/Data/Test/place_cells2'],
+        'data_path': ['/home/loulou/Documents/Data/Test/24_06_25'],
         'subfolders': [],
     }
 
 ops = suite2p.default_ops()
 
-ops['nplanes'] = 1
-ops['nchannels'] = 2
+ops['nplanes'] = 4
+ops['nchannels'] = 1
 ops['functional_chan'] = 1
 ops['tau'] = 10.0
-ops['fs'] = 30.0
+ops['fs'] = 7.5
 ops['do_registration'] = True
 ops['align_by_chan'] = 1
 ops['nimg_init'] = 500
