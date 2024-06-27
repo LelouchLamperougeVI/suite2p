@@ -23,6 +23,11 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     cum_trial = np.cumsum(cum_trial)
     cum_trial[cum_trial == np.max(cum_trial)] = 0 # reject last trial
 
+    SI = np.zeros_like(pos)
+    SI = calc_si(spks, pos)
+    p = np.zeros_like(pos)
+    p = permutation_test(spks, func=calc_si, args=(pos,), nperms=500)
+
     mvt = behaviour['movement'] & (cum_trial != 0)
     pos = pos[mvt]
     cum_trial = cum_trial[mvt]
@@ -33,12 +38,6 @@ def hmaps(behaviour: dict, spks: np.ndarray, bins=80, sigma=2) -> dict:
     
     stack = rasterize(spks, pos, bins=bins)
     sstack = utils.fast_smooth(stack, 2, axis=1)
-
-    silent = np.sum(spks, axis=1) == 0
-    SI = np.zeros_like(silent, dtype=np.float64)
-    SI[~silent] = calc_si(spks[~silent, :], pos)
-    p = np.zeros_like(silent, dtype=np.float64)
-    p[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
 
     ret = {
         'rasters': rasters,

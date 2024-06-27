@@ -67,6 +67,7 @@ def twocol_unique(x: np.ndarray) -> np.ndarray:
     FAST!!!!!
     """
     ranks = np.apply_along_axis(rankdata, 0, x).astype('uint32')
+    # ranks = np.argsort(x, axis=0).astype('uint32')
     ranks = np.ascontiguousarray(ranks)
     vect = ranks.view(np.uint64)
     _, idx = np.unique(vect[:, 0], return_index=True)
