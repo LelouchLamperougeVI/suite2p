@@ -12,7 +12,7 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     """
     x = np.arange(-sigma*5, sigma*5 + 1) # 5 sigma baby!
     kernel = np.exp(-.5 * x**2 / sigma**2)
-    kernel = kernel / np.sum(kernel)
+    kernel = (kernel / np.sum(kernel))
     normalizer = signal.convolve(np.ones((A.shape[axis],)), kernel, mode='same')
 
     smooth = lambda a: signal.convolve(a, kernel, mode='same') / normalizer
