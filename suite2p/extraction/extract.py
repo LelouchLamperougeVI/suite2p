@@ -115,9 +115,12 @@ def extract_traces(f_in, cell_masks, neuropil_masks, batch_size=500):
         ix += nimg
     print("Extracted fluorescence from %d ROIs in %d frames, %0.2f sec." %
           (ncells, n_frames, time.time() - t0))
-    u, s, v = sparse.linalg.svds(Fneu, k=1) # low rank SVD neuropil extraction
-    Fneu = u @ np.diag(s) @ v
-    print('Applied low rank SVD to neuropil traces')
+    if Fneu.shape[0] > 1:
+        u, s, v = sparse.linalg.svds(Fneu, k=1) # low rank SVD neuropil extraction
+        Fneu = u @ np.diag(s) @ v
+        print('Applied low rank SVD to neuropil traces')
+    else:
+        print('Only one or no cells were detected, skipping low rank SVD neuropil')
     return F, Fneu
 
 

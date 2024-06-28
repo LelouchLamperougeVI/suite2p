@@ -2,10 +2,14 @@ import numpy as np
 import sys
 import suite2p
 
-db = {
-        'data_path': ['/home/loulou/Documents/Data/CA3/Bernard/2024_06_26'],
-        'subfolders': [],
-    }
+db = [{
+    'data_path': ['/home/loulou/Documents/Data/CA3/Sparky/2024_06_26'],
+    'subfolders': [],
+}, {
+    'data_path': ['/home/loulou/Documents/Data/CA3/Bernard/2024_06_26'],
+    'subfolders': [],
+}]
+
 
 ops = suite2p.default_ops()
 
@@ -31,4 +35,5 @@ ops['neucoeff'] = 1.0
 ops['baseline'] = 'constant_percentile'
 ops['prctile_baseline'] = 10.0
 
-output_ops = suite2p.run_s2p(ops=ops, db=db)
+for d in db:
+    suite2p.run_s2p(ops=ops, db=d)
