@@ -1,23 +1,14 @@
 /*
 * A super hacky way to find unique rows in a two-columns array.
 * Data needs to be presented in row-major order with type float64 (double).
-* Of course, it would have been probably even faster in column-major order.
-* To that, I say, FUCK NUMPY!
 */
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <math.h>
 
-struct sortgroup {
-    unsigned int idx;
-    unsigned long long comb;
-    double *addr;
-};
-
 int compare_c1 (const void *a, const void *b) {
-    double *x = (*(struct sortgroup*) a).addr;
-    double *y = (*(struct sortgroup*) b).addr;
+    double *x = (double *) a;
+    double *y = (double *) b;
     if (*x > *y)
         return 1;
     if (*x < *y)
@@ -26,8 +17,8 @@ int compare_c1 (const void *a, const void *b) {
 }
 
 int compare_c2 (const void *a, const void *b) {
-    double *x = (*(struct sortgroup*) a).addr + 1;
-    double *y = (*(struct sortgroup*) b).addr + 1;
+    double *x = (double *) a + 1;
+    double *y = (double *) b + 1;
     if (*x > *y)
         return 1;
     if (*x < *y)
@@ -35,56 +26,51 @@ int compare_c2 (const void *a, const void *b) {
     return 0;
 }
 
-int compare (const void *a, const void *b) {
-    unsigned long long x = (*(struct sortgroup*) a).comb;
-    unsigned long long y = (*(struct sortgroup*) b).comb;
-    if (x > y)
-        return 1;
-    if (x < y)
-        return -1;
-    return 0;
-}
-
-void rankdata (struct sortgroup *sorted, size_t N, int col) {
+void rankdata (double *x, unsigned int *ranks, size_t N) {
     unsigned int acc = 0;
-    unsigned int *ptr;
-    double pre = *(sorted[0].addr + col);
+    double pre = *x;
     for (int i = 0; i < N; i++) {
-        if (pre != *(sorted[i].addr + col)) {
+        if (pre != x[i*2]) {
             acc++;
-            pre = *(sorted[i].addr + col);
+            pre = x[i*2];
         }
-        ptr = (unsigned int*) &sorted[i].comb;
-        *(ptr + col) = acc;
+        ranks[i*2] = acc;
     }
 }
 
-double *twocol_unique (double *x, size_t N) {
-    struct sortgroup sorted[N];
-    double *uniques = (double *) malloc(sizeof(double) * N * 2);
+void twocol_unique (double *x, size_t N) {
+/**** RADIX-inspired hack ****/
+    unsigned int ranks[N * 2];
 
-    for (int i = 0; i < N; i++) {
-        sorted[i].idx = i;
-        sorted[i].addr = x + i*2;
+    qsort(x, N, sizeof(double) * 2, compare_c2); // assume little-endian
+    rankdata(x + 1, ranks + 1, N); // rank second column
+
+    int base = 0;
+    int bucket = 1;
+    while (bucket < N) {
+        while (ranks[base*2 + 1] == ranks[bucket*2 + 1])
+            bucket++;
+        if ((bucket - base) > 1) {
+            qsort(x + base*2, bucket - base, sizeof(double) * 2, compare_c1);
+            base = bucket - 1;
+        }
+        base++;
+        bucket++;
     }
-    qsort(sorted, N, sizeof(*sorted), compare_c1);
-    rankdata(sorted, N, 0);
-    qsort(sorted, N, sizeof(*sorted), compare_c2);
-    rankdata(sorted, N, 1);
-    qsort(sorted, N, sizeof(*sorted), compare);
+    rankdata(x, ranks, N);
 
-    unsigned long long pre = sorted[0].comb + 1;
-    unsigned int incr = 0;
+    unsigned long long *combined = (unsigned long long *) ranks;
+    unsigned long long pre = *combined + 1;
+    double *bp = x;
     for (int i = 0; i < N; i++) {
-        if (pre != sorted[i].comb) {
-            uniques[incr*2] = *sorted[i].addr;
-            uniques[incr*2 + 1] = *(sorted[i].addr + 1);
-            incr++;
-            pre = sorted[i].comb;
+        if (pre != combined[i]) {
+            *bp++ = x[i*2];
+            *bp++ = x[i*2 + 1];
+            pre = combined[i];
         }
     }
-    uniques[incr*2] = NAN;
 
-    return uniques;
+    while (bp < (x + N*2))
+        *bp++ = NAN;
 }
 
