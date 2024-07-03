@@ -74,3 +74,4 @@ void twocol_unique (double *x, size_t N) {
         *bp++ = NAN;
 }
 
+void kdtree (double *x, size_t N, double *node) {}

@@ -84,6 +84,44 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     }
     return behaviour
 
+
+def stitch(behaviour: list) -> dict:
+    """
+    Stitch together a list of behaviours.
+    """
+    cum = ['reward', 'trial']
+    cat = ['position', 'velocity', 'movement']
+
+    homie = behaviour[0]
+    for beh in behaviour[1:]:
+        for key, field in homie.items():
+            if key in cat:
+                homie[key] = np.concatenate((homie[key], beh[key]))
+            elif key in cum:
+                homie[key] = np.concatenate((homie[key], beh[key] + homie['ts'].shape[0]))
+            elif key == 'ts':
+                homie[key] = np.concatenate((homie[key], beh[key] - beh[key][0] + 1/beh['fs'] + homie[key][-1]))
+
+    return homie
+
+
+def extract_plane(behaviour: dict, plane=0, nplanes=4) -> dict:
+    """
+    Extract behaviour from single plane.
+    """
+    behaviour = behaviour.copy()
+    subsample = ['ts', 'position', 'velocity', 'movement']
+    nearest = ['reward', 'trial']
+    for key, field in behaviour.items():
+        if key in subsample:
+            behaviour[key] = behaviour[key][plane::nplanes]
+        elif key in nearest:
+            behaviour[key] = np.floor(behaviour[key] / nplanes).astype(int)
+    behaviour['fs'] = 1 / np.median(np.diff(behaviour['ts']))
+
+    return behaviour
+
+
 def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
     """
     Detect movement epochs.
@@ -117,6 +155,7 @@ def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
         raise ValueError(prioritize + ' is not a valid option')
 
     return mvt
+
 
 def ts_extractor(t, thres=.1, gapless=False, si=10):
     """
