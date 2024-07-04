@@ -25,7 +25,7 @@ default_ops = {
     'bayes': {
         'bins': 80,
         'sigma':4,
-        'dt': .5,
+        'dt': 2,
         'k': 10,
     },
     'imaging': {
@@ -33,29 +33,61 @@ default_ops = {
     },
 }
 
+class planepack():
+    def __init__(self, spks, iscell, plane, behaviour, model, ops):
+        self.behaviour = behaviour
+        self.iscell = iscell
+        self.spks = spks
+        self.plane = plane
+        self.behaviour = behaviour
+        self.model = model
+        self.ops = ops
+
+        self.pc_analysis()
+        self.decode()
+
+    def decode(self):
+        print('running maximum a posteriori estimation')
+        mvt = self.behaviour['movement']
+        x = self.behaviour['position'][mvt]
+        n = self.spks[:, mvt]
+        n = n[~np.all(n == 0, axis=1), :]
+        self.bayes = crossvalidate(x, n, bins=self.ops['bayes']['bins'], \
+                            dt=np.round(self.ops['bayes']['dt'] * self.behaviour['fs']).astype(int), \
+                            sigma=self.ops['bayes']['sigma'] * self.ops['bayes']['bins'] / self.ops['space']['length'], \
+                            k=self.ops['bayes']['k'])
+
+
+    def pc_analysis(self, permute=None):
+        print('running place cells analysis for plane', self.plane)
+        if hasattr(self, 'analysis'):
+            if None not in self.analysis['tests']['SI']:
+                ans = input('Permutation tests already performed. Run again? y/[n]\t')
+                if ans == 'y':
+                    permute = True
+                elif (ans == 'n') | (ans == ''):
+                    permute = False
+                else:
+                    raise ValueError('Bitch, wtf?')
+        else:
+            self.analysis = {}
+            if permute is None:
+                permute = True
+
+        if permute:
+            self.analysis = pc_analysis(self.behaviour, self.spks, bins=self.ops['space']['bins'], \
+                                sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
+                                nboots=self.ops['space']['nboots'], alpha=self.ops['space']['alpha'])
+        else:
+            self.analysis.update(pc_analysis(self.behaviour, self.spks, bins=self.ops['space']['bins'], \
+                                sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
+                                nboots=None, alpha=self.ops['space']['alpha']))
+
+
 class blatify():
     def __init__(self, path, ops={}):
         self.mkops(ops)
         self.load(path)
-        self.run()
-
-    def run(self):
-        for i, plane in enumerate(self.plane):
-            print('running place cells analysis for plane', plane['plane'])
-            anal = pc_analysis(plane['behaviour'], plane['spks'], bins=self.ops['space']['bins'], \
-                                sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
-                                nboots=self.ops['space']['nboots'], alpha=self.ops['space']['alpha'])
-            self.plane[i]['analysis'] = anal
-            print('running maximum a posteriori estimation')
-            mvt = plane['behaviour']['movement']
-            x = plane['behaviour']['position'][mvt]
-            n = plane['spks'][:, mvt]
-            n = n[~np.all(n == 0, axis=1), :]
-            ret = crossvalidate(x, n, bins=self.ops['bayes']['bins'], \
-                                dt=np.round(self.ops['bayes']['dt'] * plane['behaviour']['fs']).astype(int), \
-                                sigma=self.ops['bayes']['sigma'] * self.ops['bayes']['bins'] / self.ops['space']['length'], \
-                                k=self.ops['bayes']['k'])
-            self.plane[i]['bayes'] = ret
 
     def mkops(self, ops={}):
         if not hasattr(self, 'ops'):
@@ -98,7 +130,8 @@ class blatify():
                 data['spks'] = data['spks'][data['iscell'], :]
                 data['plane'] = i
                 data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
-                self.plane.append(data)
+                data['ops'] = self.ops
+                self.plane.append(planepack(**data))
 
         ops = {
             'files': {

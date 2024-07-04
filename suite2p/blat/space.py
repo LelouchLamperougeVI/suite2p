@@ -34,7 +34,7 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
     if nboots is None:
         p_SI = np.array([None] * spks.shape[0])
     else:
-        p_SI = np.zeros((spks.shape[0],))
+        p_SI = np.ones((spks.shape[0],))
         p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
 
     rasters = rasterize(spks, pos=pos, trials=cum_trial, bins=bins)
@@ -55,8 +55,9 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
             boot[i, :] = splithalf(srasters[:, :, sample])
         p_split = np.sum(boot < 0, axis=0) / nboots
         p_split[p_split == 0] = 1 / nboots
+    p_split[silent] = 1
 
-    ispc = (p_SI < alpha) & (p_split < alpha)
+    ispc = (p_SI <= alpha) & (p_split <= alpha)
 
     ret = {
         'raw': {
