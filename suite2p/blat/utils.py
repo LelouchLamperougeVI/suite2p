@@ -13,14 +13,19 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     x = np.arange(-sigma*5, sigma*5 + 1) # 5 sigma baby!
     kernel = np.exp(-.5 * x**2 / sigma**2)
     kernel = (kernel / np.sum(kernel))
-    normalizer = signal.convolve(np.ones((A.shape[axis],)), kernel, mode='same')
+    # normalizer = signal.convolve(np.ones((A.shape[axis],)), kernel, mode='same')
 
-    smooth = lambda a: signal.convolve(a, kernel, mode='same') / normalizer
+    def smooth(a):
+        normalizer = signal.convolve((~np.isnan(a)).astype(np.float64), kernel, mode='same')
+        a[np.isnan(a)] = 0
+        ret = signal.convolve(a, kernel, mode='same') / normalizer
+        return ret
 
     A = np.moveaxis(A, source=axis, destination=-1)
     og_shape = A.shape
     A = A.reshape((np.prod(A.shape[:-1]).astype(int), A.shape[-1]))
     A = np.array(Parallel(n_jobs=-1, prefer="threads")(delayed(smooth)(v) for v in A))
+    # A = np.array([smooth(v) for v in A])
     A = A.reshape(og_shape)
     A = np.moveaxis(A, source=-1, destination=axis)
     

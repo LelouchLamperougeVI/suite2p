@@ -75,7 +75,7 @@ class blatify():
         print('found', len(planes), 'planes:', planes)
 
         if self.ops['imaging']['flybacks'] is None:
-            flybacks = [True] * len(planes)
+            flybacks = [False] * len(planes)
         else:
             flybacks = self.ops['imaging']['flybacks']
         if len(flybacks) != len(planes):

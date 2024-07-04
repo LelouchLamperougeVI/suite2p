@@ -35,12 +35,14 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
         p_SI = np.array([None] * spks.shape[0])
     else:
         p_SI = np.zeros((spks.shape[0],))
-        p_SI = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
+        p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
 
     rasters = rasterize(spks, pos=pos, trials=cum_trial, bins=bins)
+    rasters[np.isinf(rasters)] = np.nan
     srasters = utils.fast_smooth(rasters, 2, axis=1)
     
     stack = rasterize(spks, pos, bins=bins)
+    stack[np.isinf(stack)] = np.nan
     sstack = utils.fast_smooth(stack, 2, axis=1)
 
     stability = splithalf(srasters)

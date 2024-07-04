@@ -13,12 +13,12 @@ from joblib import Parallel, delayed
 import warnings
 from ctypes import *
 
-# def twocol_unique(x: np.ndarray):
-#     ctwocol_unique = CDLL('/home/loulou/Documents/GitHub/suite2p/suite2p/blat/twocol_unique.so').twocol_unique
-#     x = x.flatten()
-#     ctwocol_unique(x.ctypes.data_as(POINTER(c_double)), int(x.size/2))
-#     x = x[~np.isnan(x)].reshape(-1, 2)
-#     return x
+def twocol_unique(x: np.ndarray):
+    ctwocol_unique = CDLL('/home/loulou/Documents/GitHub/suite2p/suite2p/blat/twocol_unique.so').twocol_unique
+    x = x.flatten()
+    ctwocol_unique(x.ctypes.data_as(POINTER(c_double)), int(x.size/2))
+    x = x[~np.isnan(x)].reshape(-1, 2)
+    return x
 
 def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
     """
@@ -74,15 +74,15 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
     return I * np.log2(np.exp(1))
 
 
-def twocol_unique(x: np.ndarray) -> np.ndarray:
-    """
-    Hacky way to get unique rows in a two columns array,
-    FAST!!!!!
-    """
-    ranks = np.apply_along_axis(rankdata, 0, x).astype('uint32')
-    # ranks = np.argsort(x, axis=0).astype('uint32')
-    ranks = np.ascontiguousarray(ranks)
-    vect = ranks.view(np.uint64)
-    _, idx = np.unique(vect[:, 0], return_index=True)
+# def twocol_unique(x: np.ndarray) -> np.ndarray:
+#     """
+#     Hacky way to get unique rows in a two columns array,
+#     FAST!!!!!
+#     """
+#     ranks = np.apply_along_axis(rankdata, 0, x).astype('uint32')
+#     # ranks = np.argsort(x, axis=0).astype('uint32')
+#     ranks = np.ascontiguousarray(ranks)
+#     vect = ranks.view(np.uint64)
+#     _, idx = np.unique(vect[:, 0], return_index=True)
 
-    return x[idx, :]
+#     return x[idx, :]
