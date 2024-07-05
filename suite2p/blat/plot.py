@@ -2,6 +2,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from suite2p.blat import utils
 
+def mimg(analysis):
+    plt.rcParams['figure.figsize'] = [8, 8]
+    fig, ax = plt.subplots()
+    ax.imshow(analysis.mimg)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
 def bayes(analysis):
     plt.rcParams['figure.figsize'] = [11, 8]
     length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])

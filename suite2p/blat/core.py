@@ -14,6 +14,8 @@ default_ops = {
         'spks': 'spks.npy',
         'iscell': 'iscell.npy',
         'model': 'model.npy',
+        'ops': 'ops.npy',
+        'stat': 'stat.npy',
     },
     'space': {
         'length': 180.0,
@@ -34,17 +36,46 @@ default_ops = {
 }
 
 class planepack():
-    def __init__(self, spks, iscell, plane, behaviour, model, ops):
+    def __init__(self, spks, iscell, plane, behaviour, model, ops, my_ops, stat):
         self.behaviour = behaviour
         self.iscell = iscell
         self.spks = spks
         self.plane = plane
         self.behaviour = behaviour
         self.model = model
-        self.ops = ops
+        self.ops = my_ops
+        self.s2p_ops = ops
+        self.stat = stat
 
+        self.imaging()
         self.pc_analysis()
         self.decode()
+
+    def imaging(self):
+        ops = self.s2p_ops[()]
+
+        Lx = ops['Lx']
+        Ly = ops['Ly']
+        
+        xoff = np.concatenate(([0], ops['xoff']))
+        yoff = np.concatenate(([0], ops['yoff']))
+        self.regshift = np.sqrt(np.diff(xoff)**2 + np.diff(yoff)**2)
+        
+        green = ops['meanImg']
+        green = (green - np.min(green)) / np.ptp(green)
+        red = ops['meanImg_chan2']
+        red = (red - np.min(red)) / np.ptp(red)
+        self.mimg = np.stack((red, green, np.zeros(green.shape)), axis=2)
+        
+        iscell = np.flatnonzero(self.iscell)
+        mask = np.zeros((Ly, Lx))
+        counter = 0
+        for i, s in enumerate(self.stat):
+            if i in iscell:
+                for x, y in zip(s['xpix'], s['ypix']):
+                    mask[y, x] = counter
+                counter += 1
+        self.mask = mask
 
     def decode(self):
         print('running maximum a posteriori estimation')
@@ -130,7 +161,7 @@ class blatify():
                 data['spks'] = data['spks'][data['iscell'], :]
                 data['plane'] = i
                 data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
-                data['ops'] = self.ops
+                data['my_ops'] = self.ops
                 self.plane.append(planepack(**data))
 
         ops = {
