@@ -22,66 +22,55 @@ print(x)
 
 
 
-
 import matplotlib.pyplot as plt
-from suite2p.blat.longitudinal import *
+from suite2p.blat.longitudinal import crossdays
+from suite2p.blat import blatify
 
-def jaccard(fixed, moving, thres=.25):
-    idx = np.max(moving).astype(int) + 1
-    d = np.zeros((idx,))
-    match = np.empty((idx,))
-    match.fill(np.nan)
-    for i in range(idx):
-        mask = moving == i
-        union = fixed[mask]
-        if np.all(union == -1):
-            continue
-        candidates, counts = np.unique(union[union > -1], return_counts=True)
-        union = [c / ( np.sum(fixed == u) + np.sum(mask) - c ) for u, c in zip(candidates, counts)]
-        idx = np.argmax(union)
-        d[i] = union[idx]
-        if d[i] > thres:
-            match[i] = candidates[idx]
+ops = {
+    'imaging': {
+        'flybacks': [True, False] * 2,
+    },
+}
 
-    return match, d
+a = blatify('/home/loulou/Documents/Data/CA3/Bernard/2024_06_26', ops)
+b = blatify('/home/loulou/Documents/Data/CA3/Bernard/2024_06_27', ops)
+c = blatify('/home/loulou/Documents/Data/CA3/Bernard/2024_06_28', ops)
 
-def jaccard(fixed, moving, thres=.25):
-    d = np.zeros(moving.shape)
-    match = np.empty(moving.shape)
-    match.fill(np.nan)
-    candidates = [[f['ypix'], f['xpix']] for f in fixed]
-    for i in range(moving.shape[0]):
-        coor = [moving[i]['ypix'], moving[i]['xpix']]
-        for c in candidates:
-            idx = np.isin(coor[0], c[0]) & np.isin(coor[1], c[1])
 
-stat = np.load('/mnt/DATA/CA3/Bernard/2024_06_26/suite2p/plane3/stat.npy', allow_pickle=True)
-ops = np.load('/mnt/DATA/CA3/Bernard/2024_06_26/suite2p/plane3/ops.npy', allow_pickle=True)
-ops = ops[()]
-iscell = np.load('/mnt/DATA/CA3/Bernard/2024_06_26/suite2p/plane3/iscell.npy', allow_pickle=True)
-iscell = iscell[:, 0].astype(bool)
 
-fixed = mkmask(stat, ops, iscell)
+reg = crossdays([a.plane[1], b.plane[1], c.plane[1]])
 
-stat = np.load('/mnt/DATA/CA3/Bernard/2024_06_27/suite2p/plane3/stat.npy', allow_pickle=True)
-ops = np.load('/mnt/DATA/CA3/Bernard/2024_06_27/suite2p/plane3/ops.npy', allow_pickle=True)
-ops = ops[()]
-iscell = np.load('/mnt/DATA/CA3/Bernard/2024_06_27/suite2p/plane3/iscell.npy', allow_pickle=True)
-iscell = iscell[:, 0].astype(bool)
 
-moving = mkmask(stat, ops, iscell)
 
-# test = polar_reg(fixed, moving)
-test, rot, drifty, driftx = regmasks(fixed, moving)
-%lprun -f jaccard match, d = jaccard(fixed, test)
-match = match[d > .25]
+stack = a.plane[1].analysis['smooth']['stack'].T
+stack = (stack - np.min(stack, axis=0)) / np.ptp(stack, axis=0)
+order = np.argsort(np.argmax(stack, axis=0))
 
-test = lintransform(stat, ops['Ly'], ops['Lx'], rot, drifty, driftx)
-test = mkmask(test, ops, iscell)
+fig, axs = plt.subplots(1, 3)
+stack_a = stack[:, order]
+axs[0].imshow(stack_a.T)
+
+stack = b.plane[1].analysis['smooth']['stack'].T
+stack = (stack - np.min(stack, axis=0)) / np.ptp(stack, axis=0)
+idx = reg[1][0][order]
+sstack = np.zeros((stack.shape[0], idx.shape[0]))
+sstack[:, ~np.isnan(idx)] = stack[:, idx[~np.isnan(idx)].astype(int)]
+stack_b = sstack
+axs[1].imshow(stack_b.T)
+
+stack = c.plane[1].analysis['smooth']['stack'].T
+stack = (stack - np.min(stack, axis=0)) / np.ptp(stack, axis=0)
+idx = reg[2][0][order]
+sstack = np.zeros((stack.shape[0], idx.shape[0]))
+sstack[:, ~np.isnan(idx)] = stack[:, idx[~np.isnan(idx)].astype(int)]
+stack_c = sstack
+axs[2].imshow(stack_c.T)
+
+
+
+
+from suite2p.blat import utils
 
 fig, axs = plt.subplots(1, 2)
-axs[0].imshow((fixed+1).astype(bool).astype(int) + ((moving+1).astype(bool).astype(int) *2))
-axs[1].imshow((fixed+1).astype(bool).astype(int) + ((test+1).astype(bool).astype(int) *2))
-
-fig = plt.figure()
-plt.imshow(np.isin(fixed, match) + ((test+1).astype(bool).astype(int) *2))
+axs[0].imshow(utils.corr(stack_a, stack_b), vmin=0)
+axs[1].imshow(utils.corr(stack_a, stack_c), vmin=0)

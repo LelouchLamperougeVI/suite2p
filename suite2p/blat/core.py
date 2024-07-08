@@ -5,6 +5,7 @@ import warnings
 from .behaviour import extract_behaviour, stitch, extract_plane
 from .space import pc_analysis
 from .bayes import crossvalidate
+from .longitudinal import mkmask
 
 default_ops = {
     'files': {
@@ -68,15 +69,9 @@ class planepack():
         self.mimg = np.stack((red, green, np.zeros(green.shape)), axis=2)
         
         iscell = np.flatnonzero(self.iscell)
-        mask = np.zeros((Ly, Lx))
-        counter = 0
-        for i, s in enumerate(self.stat):
-            if i in iscell:
-                for x, y in zip(s['xpix'], s['ypix']):
-                    mask[y, x] = counter
-                counter += 1
-        self.mask = mask
+        self.mask = mkmask(self.stat, Ly, Lx, iscell)
 
+    
     def decode(self):
         print('running maximum a posteriori estimation')
         mvt = self.behaviour['movement']

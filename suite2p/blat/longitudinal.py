@@ -2,7 +2,7 @@ import numpy as np
 from skimage.transform import warp_polar, rotate
 from scipy.signal import fftconvolve
 
-def mkmask(stat, ops, iscell=None):
+def mkmask(stat, Ly, Lx, iscell=None):
     """
     Create masks from suite2p stat and ops dicts
     for the cells defined in array iscell (bool or int).
@@ -11,9 +11,6 @@ def mkmask(stat, ops, iscell=None):
         iscell = np.ones((stat.shape[0])).astype(bool)
     if iscell.dtype is np.dtype('bool'):
         iscell = np.flatnonzero(iscell)
-
-    Lx = ops['Lx']
-    Ly = ops['Ly']
 
     count = 0
     mask = -np.ones((Ly, Lx))
@@ -24,6 +21,59 @@ def mkmask(stat, ops, iscell=None):
             count += 1
 
     return mask
+
+
+def crossdays(planes: list) -> list:
+    """
+    This is the main registeration method.
+    Takes as input a list of planepack objects.
+    """
+    Ly = [p.s2p_ops[()]['Ly'] for p in planes]
+    Lx = [p.s2p_ops[()]['Lx'] for p in planes]
+    if (np.unique(Ly).shape[0] > 1) | (np.unique(Lx).shape[0] > 1):
+        raise ValueError("Inconsistent pixel resolutions across recordings. Are you should these are the same experiments?")
+    
+    stats = [p.stat[p.iscell] for p in planes]
+    idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in stats]
+    return idx
+
+
+def regmasks(fixed, moving, Ly, Lx):
+    fixed_stat = fixed
+    mov_stat = moving
+    fixed = mkmask(fixed, Ly, Lx)
+    moving = mkmask(moving, Ly, Lx)
+    
+    _, rot, drifty, driftx = register(fixed, moving)
+    mov_stat = lintransform(mov_stat, Ly, Lx, rot, drifty, driftx)
+    match, dist = jaccard(fixed_stat, mov_stat)
+
+    return match, dist
+
+
+def jaccard(fixed, moving, thres=.25):
+    dist = np.zeros(moving.shape)
+    match = np.empty(moving.shape)
+    match.fill(np.nan)
+    candidates = [np.array([f['ypix'], f['xpix']]) for f in fixed]
+    for i in range(moving.shape[0]):
+        coor = np.array([moving[i]['ypix'], moving[i]['xpix']]).T
+        d = []
+        m = []
+        for idx, c in enumerate(candidates):
+            union = np.sum(np.all(coor[:, :, np.newaxis] == c[np.newaxis, :, :], axis=1))
+            if union == 0:
+                continue
+            d.append(union / ( c.shape[1] + coor.shape[0] - union ))
+            m.append(idx)
+        if len(d) == 0:
+            continue
+        idx = np.argmax(d)
+        dist[i] = d[idx]
+        if d[idx] > thres:
+            match[i] = m[idx]
+            
+    return match, dist
 
 
 def lintransform(stat, Ly, Lx, rot=0, drifty=0, driftx=0):
@@ -47,7 +97,7 @@ def transform(mask, rot=0, drifty=0, driftx=0):
     return reg
 
 
-def regmasks(fixed, moving, twostep=True, maxIter=100):
+def register(fixed, moving, twostep=True, maxIter=100):
     """
     A very unsophisticated registration algo for masks across days
     that just works... Register twice with twostep (recommended).
