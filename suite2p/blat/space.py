@@ -23,16 +23,18 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
     cum_trial = np.cumsum(cum_trial)
     cum_trial[cum_trial == np.max(cum_trial)] = 0 # reject last trial
 
-    mvt = behaviour['movement'] & (cum_trial != 0)
+    mvt = behaviour['movement'] & (cum_trial != 0) & (behaviour['epochs'] == 2)
     pos = pos[mvt]
     cum_trial = cum_trial[mvt]
+    cum_trial = np.cumsum(np.diff(cum_trial) > 0)
+    cum_trial = np.insert(cum_trial, 0, 0)
     spks = spks[:, mvt]
 
     silent = np.sum(spks, axis=1) == 0
     SI = np.zeros((spks.shape[0],))
     SI[~silent] = calc_si(spks[~silent, :], pos)
     if nboots is None:
-        p_SI = np.array([None] * spks.shape[0])
+        p_SI = np.array([1] * spks.shape[0])
     else:
         p_SI = np.ones((spks.shape[0],))
         p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
@@ -47,7 +49,7 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
 
     stability = splithalf(srasters)
     if nboots is None:
-        p_split = np.array([None] * spks.shape[0])
+        p_split = np.array([1] * spks.shape[0])
     else:
         boot = np.zeros((nboots, srasters.shape[0]))
         for i in range(nboots):

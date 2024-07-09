@@ -67,6 +67,7 @@ def corr(X, Y=None, axis=1):
                         np.sqrt( np.sum((x - muX)**2) * \
                                 np.sum((y - muY)**2) )
 
+    rho[np.isnan(rho)] = 0
     return rho
         
 

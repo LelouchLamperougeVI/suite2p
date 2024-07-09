@@ -1,17 +1,47 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from suite2p.blat import utils
+from skimage import exposure
+
+def crossdays(planes, reg):
+    fig1, axs1 = plt.subplots(len(planes), len(planes))
+    fig2, axs2 = plt.subplots(len(planes), len(planes))
+    for i in range(len(planes)):
+        idx = list({k for k in range(len(planes))}.difference({i}))
+        stable = np.array([r[i] for r in reg])
+        stable = np.any(~np.isnan(stable[idx, :]), axis=0)
+        
+        rstack = planes[i].analysis['smooth']['stack'].T
+        rstack = (rstack - np.min(rstack, axis=0)) / np.ptp(rstack, axis=0)
+        order = np.argsort(np.argmax(rstack, axis=0))
+        stable = stable[order]
+
+        rstack = rstack[:, order]
+        rstack = rstack[:, stable]
+        for j in range(len(planes)):
+            stack = planes[j].analysis['smooth']['stack'].T
+            stack = (stack - np.min(stack, axis=0)) / np.ptp(stack, axis=0)
+            idx = reg[j][i][order]
+            sstack = np.empty((stack.shape[0], idx.shape[0]))
+            sstack.fill(np.nan)
+            sstack[:, ~np.isnan(idx)] = stack[:, idx[~np.isnan(idx)].astype(int)]
+            sstack = sstack[:, stable]
+            axs1[i, j].imshow(sstack.T)
+            axs2[i, j].imshow(utils.corr(rstack, sstack))
+            
 
 def mimg(analysis):
     plt.rcParams['figure.figsize'] = [8, 8]
+    mimg = analysis.mimg.copy()
+    # mimg[:, :, 0] = exposure.adjust_gamma(mimg[:, :, 0])
     fig, ax = plt.subplots()
-    ax.imshow(analysis.mimg)
+    ax.imshow(mimg)
     ax.set_xticks([])
     ax.set_yticks([])
 
 def bayes(analysis):
     plt.rcParams['figure.figsize'] = [11, 8]
-    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
+    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement'] & (analysis.behaviour['epochs'] == 2)])
     t = np.linspace(0, analysis.bayes['real'].shape[0] / analysis.behaviour['fs'], analysis.bayes['real'].shape[0])
     sigma = analysis.ops['bayes']['sigma'] * analysis.ops['bayes']['bins'] / length
     rewards = analysis.behaviour['position'][analysis.behaviour['reward']]
@@ -45,13 +75,14 @@ def bayes(analysis):
     # axs[1, 1].set_yticks([length, 0])
     
 
-def stack(analysis, pc_only=True, evenodd=True):
-    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
+def stack(analysis, pc_only=True, evenodd=True, ispc=None):
+    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement'] & (analysis.behaviour['epochs'] == 2)])
     analysis = analysis.analysis
-    if pc_only:
-        ispc = analysis['ispc']
-    else:
-        ispc = np.ones_like(analysis['ispc'].shape[0]).astype(bool)
+    if ispc is None:
+        if pc_only:
+            ispc = analysis['ispc']
+        else:
+            ispc = np.ones_like(analysis['ispc']).astype(bool)
 
     if evenodd:
         plt.rcParams['figure.figsize'] = [5, 8]
@@ -104,16 +135,17 @@ def stack(analysis, pc_only=True, evenodd=True):
         axs[1].set_title('PV correlation')
         
 
-def rasters(analysis, k=8, pc_only=True):
+def rasters(analysis, k=8, pc_only=True, ispc=None):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
     
     length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
     laps = analysis.behaviour['trial'].shape[0] - 1
     analysis = analysis.analysis
-    if pc_only:
-        ispc = analysis['ispc']
-    else:
-        ispc = np.ones_like(analysis['ispc'].shape[0]).astype(bool)
+    if ispc is None:
+        if pc_only:
+            ispc = analysis['ispc']
+        else:
+            ispc = np.ones_like(analysis['ispc']).astype(bool)
 
     rasters = analysis['smooth']['rasters'][ispc, :, :]
     stack = analysis['smooth']['stack'][ispc, :]

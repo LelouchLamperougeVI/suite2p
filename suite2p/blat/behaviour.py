@@ -61,13 +61,23 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     
     # convert cumulative to raw positions from trials
     trial_idx, _ = ts_extractor(trial)
-    trial_idx = trial_idx[:-1]
-    for t in trial_idx:
-        pos[t:] -= pos[t]
-
+    epochs = np.zeros_like(pos)
     reward_idx, _ = ts_extractor(reward)
+    if (trial_idx.shape[0] == 2) & (reward_idx.shape[0] == 0):
+        print("automatically detected rest session")
+        epochs[trial_idx[0]:trial_idx[1]] = 1
+        trial_idx = np.array([])
+    elif trial_idx.shape[0] > 2:
+        print("automatically detected run session")
+        epochs[trial_idx[0]:trial_idx[-1]] = 2
+        trial_idx = trial_idx[:-1]
+        for t in trial_idx:
+            pos[t:] -= pos[t]
+        reward_idx = knnsearch(frame_idx, reward_idx)
+    else:
+        raise RuntimeError("Corrupted trial indices. Automatic rest/run detection failed.")
+
     # licks_idx = ts_extractor(licks)
-    reward_idx = knnsearch(frame_idx, reward_idx)
     trial_idx = knnsearch(frame_idx, trial_idx)
     # licks_idx = knnsearch(frame_idx, licks_idx)
 
@@ -80,7 +90,8 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
         'velocity': vel[frame_idx],
         'movement': mvt[frame_idx],
         'ts': frame_idx / fs,
-        'fs': twop_fs
+        'fs': twop_fs,
+        'epochs': epochs[frame_idx], # 0 for rejection, 1 for rest, 2 for run
     }
     return behaviour
 
@@ -90,7 +101,7 @@ def stitch(behaviour: list) -> dict:
     Stitch together a list of behaviours.
     """
     cum = ['reward', 'trial']
-    cat = ['position', 'velocity', 'movement']
+    cat = ['position', 'velocity', 'movement', 'epochs']
 
     homie = behaviour[0]
     for beh in behaviour[1:]:
@@ -110,7 +121,7 @@ def extract_plane(behaviour: dict, plane=0, nplanes=4) -> dict:
     Extract behaviour from single plane.
     """
     behaviour = behaviour.copy()
-    subsample = ['ts', 'position', 'velocity', 'movement']
+    subsample = ['ts', 'position', 'velocity', 'movement', 'epochs']
     nearest = ['reward', 'trial']
     for key, field in behaviour.items():
         if key in subsample:
@@ -172,6 +183,8 @@ def ts_extractor(t, thres=.1, gapless=False, si=10):
         si, _ = stats.mode(np.diff(idx))
         si = si / 2
     good = np.flatnonzero(np.diff(idx) > si)
+    if good.shape[0] == 0:
+        return np.array([]), np.array([])
     heads = idx[np.concatenate(([0], good + 1))]
     tails = idx[np.concatenate((good, [-1]))] + 1
     return heads, tails

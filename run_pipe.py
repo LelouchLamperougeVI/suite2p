@@ -3,7 +3,7 @@ import sys
 import suite2p
 
 db = [{
-    'data_path': ['/mnt/DATA/CA3/Bernard/2024_07_02'],
+    'data_path': ['/mnt/DATA/CA3/Bernard/2024_07_07'],
     'subfolders': [],
 }]
 

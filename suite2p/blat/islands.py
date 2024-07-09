@@ -1,0 +1,117 @@
+import numpy as np
+from scipy import stats
+from scipy.spatial.distance import squareform
+from scipy.optimize import minimize_scalar
+from suite2p.blat import utils
+
+def r2bin(r):
+    """
+    Convert correlation matrix to binary matrix.
+    Threshold set by preserving the maximum explained
+    variance in the ogirinal matrix.
+    """
+    d = 1 - r
+    d = squareform(d)
+    ev = lambda t: 1 - utils.corr(d, (d < t).astype(np.float64)).squeeze()**2
+    opt = minimize_scalar(fun=ev, bounds=[0, 2])
+    thres = 1 - opt['x']
+
+    return r > thres
+
+
+def bmf(d, patterns = None, count = 0, thres = .99, maxIter=500):
+    """
+    Binary matrix factorization.
+    """
+    if patterns is None:
+        patterns = np.zeros((1, d.shape[0]))
+    if np.sum(d) == 0 or count == maxIter:
+        patterns = np.delete(patterns, -1, axis = 0)
+        return d, patterns
+    idx = np.argsort(np.sum(d, axis = 0))
+    idx = idx[::-1]
+    idx_ = np.argsort(idx)
+    d_ = d[np.ix_(idx, idx)]
+      
+    m = np.ceil(np.max(np.argwhere(np.sum(d_, axis = 0) > 0)) / 2).astype(int)
+    idx = np.sum(np.logical_and(d_[:, m], d_), axis = 1) / np.sum(d_[:, m]) > thres
+    
+    if np.sum(idx) > 1: # do not consider noise vectors
+        pattern, _ = stats.mode(d_[:, idx].astype(int), axis = 1)
+        patterns[-1, :] = pattern[idx_]
+        patterns = np.vstack((patterns, np.zeros((1, d_.shape[0]))))
+      
+    d_[:, idx] = False
+    d_[idx, :] = False
+    d_ = d_[np.ix_(idx_, idx_)]
+      
+    return bmf(d_, patterns, count+1)
+
+
+def binothres(d, prct = .99):
+    """
+    Estimate threshold by modelling as binomial dist.
+    """
+    p = np.mean(np.sum(d, axis = 0)) / d.shape[0]
+    c = stats.binom.ppf(prct, d.shape[0], p**2)
+    return c / np.floor(p * d.shape[0])
+
+
+def prune(patterns, nmin=5, overlap=.75):
+    """
+    Prune the patterns, merge overlaps and
+    delete small ensembles.
+    """
+    patterns = patterns.astype(bool).copy()
+    patterns = patterns[np.sum(patterns, axis=1) >= nmin, :]
+    
+    jaccard = np.sum(patterns[:, :, np.newaxis] & patterns.T[np.newaxis, :, :], axis=1)
+    jaccard = jaccard / \
+                np.min(np.stack(\
+                    (np.tile(np.sum(patterns, axis=1)[:, np.newaxis], reps=(1, patterns.shape[0])), \
+                     np.tile(np.sum(patterns, axis=1)[np.newaxis, :], reps=(patterns.shape[0], 1))), \
+                    axis=2), axis=2)
+    jaccard = np.triu(jaccard, 1)
+
+    x, y = np.unravel_index(np.argmax(jaccard), jaccard.shape)
+    if jaccard[x, y] < overlap:
+        return patterns
+    patterns[x, :] = patterns[x, :] | patterns[y, :]
+    patterns = np.delete(patterns, obj=y, axis=0)
+
+    patterns = prune(patterns, nmin=nmin, overlap=overlap)
+    return patterns
+        
+
+def sort(patterns):
+    patterns = patterns.astype(bool).copy()
+    jaccard = np.sum(patterns[:, :, np.newaxis] & patterns.T[np.newaxis, :, :], axis=1)
+    jaccard = jaccard / (np.sum(patterns, axis=1)[:, np.newaxis] + np.sum(patterns, axis=1)[np.newaxis, :] - jaccard)
+    jaccard[np.diagflat(np.diag(np.ones_like(jaccard).astype(bool)))] = 0
+    
+    lsorted = np.zeros((patterns.shape[0],)).astype(bool)
+    current = np.argmax(np.sum(patterns, axis=1))
+    idx = 0
+    order = np.arange(patterns.shape[1])
+    while ~np.all(lsorted):
+        linked = np.argmax(jaccard[current, :])
+        if jaccard[current, linked] == 0:
+            seq = ~patterns[current, idx:]
+        else:
+            seq = (~patterns[current, idx:]).astype(int) + patterns[linked, idx:].astype(int) + \
+                    (~(patterns[current, idx:] | patterns[linked, idx:])).astype(int) * 2
+        sorting = np.argsort(seq)
+        temp = order[idx:]
+        order[idx:] = temp[sorting]
+        temp = patterns[:, idx:]
+        patterns[:, idx:] = temp[:, sorting]
+        idx = np.flatnonzero(patterns[current, :])[-1] + 1
+        lsorted[current] = True
+        if jaccard[current, linked] == 0:
+            current = np.argmax(np.sum(patterns, axis=1) * ~lsorted)
+        else:
+            current = linked
+        jaccard[:, current] = 0
+
+    patterns = patterns[np.argsort(np.sum(patterns, axis=1))[::-1], :]
+    return patterns, order

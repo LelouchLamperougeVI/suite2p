@@ -74,7 +74,7 @@ class planepack():
     
     def decode(self):
         print('running maximum a posteriori estimation')
-        mvt = self.behaviour['movement']
+        mvt = self.behaviour['movement'] & (self.behaviour['epochs'] == 2)
         x = self.behaviour['position'][mvt]
         n = self.spks[:, mvt]
         n = n[~np.all(n == 0, axis=1), :]
