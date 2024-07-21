@@ -3,6 +3,7 @@ from scipy import stats
 from scipy.spatial.distance import squareform
 from scipy.optimize import minimize_scalar
 from suite2p.blat import utils
+from rich import progress
 
 def r2bin(r):
     """
@@ -11,12 +12,34 @@ def r2bin(r):
     variance in the ogirinal matrix.
     """
     d = 1 - r
+    d[np.diagflat(np.ones((r.shape[0],))).astype(bool)] = 0
     d = squareform(d)
     ev = lambda t: 1 - utils.corr(d, (d < t).astype(np.float64)).squeeze()**2
     opt = minimize_scalar(fun=ev, bounds=[0, 2])
     thres = 1 - opt['x']
 
     return r > thres
+
+
+def mi_mat(x, norm=True, axis=1):
+    """
+    Compute the mutual information matrix.
+    If norm, normalize the matrix by max(H(a), H(b)).
+    """
+    if axis == 0:
+        x = x.T
+        
+    I = np.zeros((x.shape[0], x.shape[0]))
+    for i in progress.track(range(I.shape[0]), description='MI matrix with KSG estimator...'):
+        I[i, i:] = ksg_mi(x[i:, :], x[i, :])
+    I = I + np.rot90(np.flipud(np.triu(I, 1)), k=3)
+
+    if norm:
+        H = np.diag(I)
+        H = np.array([[np.max([i, j]) for j in H] for i in H])
+        I = I / H
+
+    return I
 
 
 def bmf(d, patterns = None, count = 0, thres = .99, maxIter=500):
@@ -108,10 +131,12 @@ def sort(patterns):
         idx = np.flatnonzero(patterns[current, :])[-1] + 1
         lsorted[current] = True
         if jaccard[current, linked] == 0:
+            jaccard[:, current] = 0
             current = np.argmax(np.sum(patterns, axis=1) * ~lsorted)
         else:
+            jaccard[:, current] = 0
             current = linked
-        jaccard[:, current] = 0
 
-    patterns = patterns[np.argsort(np.sum(patterns, axis=1))[::-1], :]
+    # patterns = patterns[np.argsort(np.sum(patterns, axis=1))[::-1], :]
+    
     return patterns, order

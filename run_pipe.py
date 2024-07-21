@@ -2,16 +2,23 @@ import numpy as np
 import sys
 import suite2p
 
-db = [{
-    'data_path': ['/mnt/DATA/CA3/Bernard/2024_07_07'],
+db = [
+{
+    'data_path': ['/mnt/DATA/CA3/Bernard/2024_07_11'],
     'subfolders': [],
-}]
+},
+{
+    'data_path': ['/mnt/DATA/CA3/Bernard/2024_07_12'],
+    'subfolders': [],
+},
+]
 
 
 ops = suite2p.default_ops()
 
 ops['nplanes'] = 4
-ops['nchannels'] = 2
+ops['nchannels'] = 1
+ops['ignore_flyback'] = [0, 2]
 ops['functional_chan'] = 1
 ops['tau'] = 10.0
 ops['fs'] = 7.5

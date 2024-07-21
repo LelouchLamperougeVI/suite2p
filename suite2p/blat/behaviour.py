@@ -60,9 +60,9 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     mvt = detect_mvt(vel, gaps=.25, fs=fs, prioritize='movement')
     
     # convert cumulative to raw positions from trials
-    trial_idx, _ = ts_extractor(trial)
+    trial_idx, _ = ts_extractor(trial, si=5e3, thres=2)
     epochs = np.zeros_like(pos)
-    reward_idx, _ = ts_extractor(reward)
+    reward_idx, _ = ts_extractor(reward, thres=2)
     if (trial_idx.shape[0] == 2) & (reward_idx.shape[0] == 0):
         print("automatically detected rest session")
         epochs[trial_idx[0]:trial_idx[1]] = 1
@@ -182,9 +182,12 @@ def ts_extractor(t, thres=.1, gapless=False, si=10):
     if gapless:
         si, _ = stats.mode(np.diff(idx))
         si = si / 2
-    good = np.flatnonzero(np.diff(idx) > si)
+    if idx.shape[0] == 1:
+        good = np.array([-1])
+    else:
+        good = np.flatnonzero(np.diff(idx) > si)
     if good.shape[0] == 0:
         return np.array([]), np.array([])
     heads = idx[np.concatenate(([0], good + 1))]
     tails = idx[np.concatenate((good, [-1]))] + 1
-    return heads, tails
+    return np.unique(heads), np.unique(tails)

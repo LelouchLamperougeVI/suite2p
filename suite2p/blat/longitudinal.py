@@ -17,6 +17,9 @@ def mkmask(stat, Ly, Lx, iscell=None):
     for i, s in enumerate(stat):
         if i in iscell:
             for x, y in zip(s['xpix'], s['ypix']):
+                idx = (x < Lx) & (x >= 0) & (y < Ly) & (y >= 0)
+                x = x[idx]
+                y = y[idx]
                 mask[y, x] = count
             count += 1
 

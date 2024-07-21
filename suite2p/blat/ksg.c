@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <math.h>
 
+struct node {
+    double *addr, *left, *right;
+    int isleaf;
+};
+
 int compare_c1 (const void *a, const void *b) {
     double *x = (double *) a;
     double *y = (double *) b;
@@ -74,3 +79,10 @@ void twocol_unique (double *x, size_t N) {
         *bp++ = NAN;
 }
 
+struct node *mktree (double *root, size_t N, int prime_dim) {
+    size_t split = N / 2;
+    if (!prime_dim) {
+    }
+}
+
+void kdtree (double *x, size_t N, double *node) {}

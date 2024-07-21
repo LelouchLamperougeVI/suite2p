@@ -200,6 +200,7 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                 t11 = time.time()
                 print("----------- SPIKE DECONVOLUTION")
                 dF = F.copy() - ops["neucoeff"] * Fneu
+                np.save(os.path.join(ops['save_path'], 'debug.npy'), dF)
                 dF = extraction.preprocess(F=dF, baseline=ops["baseline"],
                                            win_baseline=ops["win_baseline"],
                                            sig_baseline=ops["sig_baseline"],
@@ -210,7 +211,14 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                 spks = np.zeros_like(dF)
                 model = np.zeros_like(dF)
                 for i in range(spks.shape[0]):
-                    model[i, :], _, _, _, _, spks[i, :], _ = extraction.deconvolution.constrained_foopsi(dF[i, :], p=2, verbosity=True, method_deconvolution='oasis', lags=int(np.round(ops['fs']*ops['tau'])))
+                    print(i)
+                    failed = True
+                    while failed:
+                        try:
+                            model[i, :], _, _, _, _, spks[i, :], _ = extraction.deconvolution.constrained_foopsi(dF[i, :], p=2, verbosity=True, method_deconvolution='oasis', lags=int(np.round(ops['fs']*ops['tau'])))
+                            failed = False
+                        except:
+                            pass
                 plane_times["deconvolution"] = time.time() - t11
                 print("----------- Total %0.2f sec." % plane_times["deconvolution"])
             else:

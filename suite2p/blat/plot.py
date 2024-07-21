@@ -4,8 +4,13 @@ from suite2p.blat import utils
 from skimage import exposure
 
 def crossdays(planes, reg):
+    plt.rcParams['figure.figsize'] = [4, 8]
+    length = np.max(planes[0].behaviour['position'][planes[0].behaviour['movement'] & (planes[0].behaviour['epochs'] == 2)])
+    
     fig1, axs1 = plt.subplots(len(planes), len(planes))
-    fig2, axs2 = plt.subplots(len(planes), len(planes))
+    # fig2, axs2 = plt.subplots(len(planes), len(planes))
+    pv = []
+    stab = []
     for i in range(len(planes)):
         idx = list({k for k in range(len(planes))}.difference({i}))
         stable = np.array([r[i] for r in reg])
@@ -18,6 +23,8 @@ def crossdays(planes, reg):
 
         rstack = rstack[:, order]
         rstack = rstack[:, stable]
+        pv.append([])
+        stab.append([])
         for j in range(len(planes)):
             stack = planes[j].analysis['smooth']['stack'].T
             stack = (stack - np.min(stack, axis=0)) / np.ptp(stack, axis=0)
@@ -26,8 +33,25 @@ def crossdays(planes, reg):
             sstack.fill(np.nan)
             sstack[:, ~np.isnan(idx)] = stack[:, idx[~np.isnan(idx)].astype(int)]
             sstack = sstack[:, stable]
-            axs1[i, j].imshow(sstack.T)
-            axs2[i, j].imshow(utils.corr(rstack, sstack))
+            sstack[np.isnan(sstack)] = 0
+            axs1[i, j].imshow(sstack.T, aspect='auto', interpolation='none', extent=[0, length, sstack.shape[1], 1])
+            axs1[i, j].set_xticks([])
+            axs1[i, j].set_yticks([])
+            if i == 0:
+                axs1[i, j].set_title('day ' + str(j))
+            if j == 0:
+                axs1[i, j].set_yticks([1, sstack.shape[1]])
+                if i == (len(planes)-1):
+                    axs1[i, j].set_xticks([0, length])
+                    axs1[i, j].set_xlabel('position (cm)')
+                    axs1[i, j].set_ylabel('neurons')
+            # axs2[i, j].imshow(utils.corr(rstack, sstack), interpolation='none')
+            pv[i].append([])
+            stab[i].append([])
+            pv[i][j] = [np.diag(utils.corr(rstack, sstack, axis=0))]
+            stab[i][j] = [np.diag(utils.corr(rstack, sstack, axis=1))]
+
+    return pv, stab
             
 
 def mimg(analysis):
@@ -75,9 +99,7 @@ def bayes(analysis):
     # axs[1, 1].set_yticks([length, 0])
     
 
-def stack(analysis, pc_only=True, evenodd=True, ispc=None):
-    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement'] & (analysis.behaviour['epochs'] == 2)])
-    analysis = analysis.analysis
+def stack(analysis, pc_only=True, evenodd=True, ispc=None, length=180.0):
     if ispc is None:
         if pc_only:
             ispc = analysis['ispc']
@@ -86,28 +108,30 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None):
 
     if evenodd:
         plt.rcParams['figure.figsize'] = [5, 8]
-        stack = analysis['smooth']['stack'][ispc, :].T
-        order = np.argsort(np.argmax(stack, axis=0))
+        # stack = analysis['smooth']['stack'][ispc, :].T
+        # order = np.argsort(np.argmax(stack, axis=0))
         stack = analysis['smooth']['rasters'][ispc, :, :]
         even = np.mean(stack[:, :, ::2], axis=2).T
         even = (even - np.min(even, axis=0)) / np.ptp(even, axis=0)
         odd = np.mean(stack[:, :, 1::2], axis=2).T
         odd = (odd - np.min(odd, axis=0)) / np.ptp(odd, axis=0)
+
+        order = np.argsort(np.argmax(even, axis=0))
         
         fig, axs = plt.subplots(2, 2, height_ratios=[2, 1])
-        axs[0, 0].imshow(even[:, order].T, aspect='auto', extent=[0, length, even.shape[1], 1])
+        axs[0, 0].imshow(even[:, order].T, aspect='auto', extent=[0, length, even.shape[1], 1], interpolation='none')
         axs[0, 0].set_box_aspect(2)
         axs[0, 0].set_ylabel('neurons')
         axs[0, 0].set_xticks([0, length])
         axs[0, 0].set_yticks([even.shape[1], 1])
         axs[0, 0].set_title('even laps')
-        axs[1, 0].imshow(utils.corr(even, odd, axis=1), extent=[0, length, length, 0])
+        axs[1, 0].imshow(utils.corr(even, odd, axis=1), extent=[0, length, length, 0], interpolation='none')
         axs[1, 0].set_ylabel('even')
         axs[1, 0].set_xlabel('odd')
         axs[1, 0].set_xticks([0, length])
         axs[1, 0].set_yticks([length, 0])
         axs[1, 0].set_title('PV correlation')
-        axs[0, 1].imshow(odd[:, order].T, aspect='auto', extent=[0, length, even.shape[1], 1])
+        axs[0, 1].imshow(odd[:, order].T, aspect='auto', extent=[0, length, even.shape[1], 1], interpolation='none')
         axs[0, 1].set_box_aspect(2)
         axs[0, 1].set_xlabel('position (cm)')
         axs[0, 1].set_xticks([0, length])
@@ -122,25 +146,25 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None):
         order = np.argsort(np.argmax(stack, axis=0))
         
         fig, axs = plt.subplots(1, 2)
-        axs[0].imshow(stack[:, order].T, aspect='auto', extent=[0, length, stack.shape[1], 1])
+        axs[0].imshow(stack[:, order].T, aspect='auto', extent=[0, length, stack.shape[1], 1], interpolation='none')
         axs[0].set_box_aspect(2)
         axs[0].set_ylabel('neurons')
         axs[0].set_xlabel('position (cm)')
         axs[0].set_xticks([0, length])
         axs[0].set_yticks([stack.shape[1], 1])
-        axs[1].imshow(utils.corr(stack, axis=1), extent=[0, length, length, 0])
+        axs[1].imshow(utils.corr(stack, axis=1), extent=[0, length, length, 0], interpolation='none')
         axs[1].set_xlabel('position (cm)')
         axs[1].set_xticks([0, length])
         axs[1].set_yticks([])
         axs[1].set_title('PV correlation')
         
 
-def rasters(analysis, k=8, pc_only=True, ispc=None):
+def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
     
-    length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
-    laps = analysis.behaviour['trial'].shape[0] - 1
-    analysis = analysis.analysis
+    # length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
+    laps = analysis['smooth']['rasters'].shape[2]
+    # analysis = analysis.analysis
     if ispc is None:
         if pc_only:
             ispc = analysis['ispc']
@@ -158,7 +182,7 @@ def rasters(analysis, k=8, pc_only=True, ispc=None):
     fig, axs = plt.subplots(k, k)
     for i, ax in zip(order, axs.flat):
         ax.imshow(-rasters[i, :, :].T, cmap='gray', aspect='auto', \
-                  extent=[0, length, laps, 1])
+                  extent=[0, length, laps, 1], interpolation='none')
         if ax is axs.flat[-1]:
             ax.set_xlabel('position (cm)')
             ax.set_ylabel('lap')

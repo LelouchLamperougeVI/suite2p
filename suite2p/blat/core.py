@@ -64,8 +64,11 @@ class planepack():
         
         green = ops['meanImg']
         green = (green - np.min(green)) / np.ptp(green)
-        red = ops['meanImg_chan2']
-        red = (red - np.min(red)) / np.ptp(red)
+        if 'meanImg_chan2' in ops.keys():
+            red = ops['meanImg_chan2']
+            red = (red - np.min(red)) / np.ptp(red)
+        else:
+            red = np.zeros_like(green)
         self.mimg = np.stack((red, green, np.zeros(green.shape)), axis=2)
         
         iscell = np.flatnonzero(self.iscell)

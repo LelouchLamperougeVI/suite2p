@@ -10,6 +10,9 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     """
     Fast 1D Gaussian smoothing with edge correction.
     """
+    if sigma == 0:
+        return A
+        
     x = np.arange(-sigma*5, sigma*5 + 1) # 5 sigma baby!
     kernel = np.exp(-.5 * x**2 / sigma**2)
     kernel = (kernel / np.sum(kernel))
