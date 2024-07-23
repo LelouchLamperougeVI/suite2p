@@ -53,22 +53,12 @@ def corr(X, Y=None, axis=1):
         Y = np.array([Y])
         if axis == 0:
             Y = Y.T
-    if axis == 0:
+    if axis == 1:
         X, Y = X.T, Y.T
 
-    rho = np.zeros((X.shape[0], Y.shape[0]))
-    for i in range(X.shape[0]):
-        for j in range(Y.shape[0]):
-            x = X[i, :]
-            y = Y[j, :]
-            nans = np.isnan(x) | np.isnan(y)
-            x = x[~nans]
-            y = y[~nans]
-            muX = np.mean(x)
-            muY = np.mean(y)
-            rho[i, j] = np.sum((x - muX) * (y - muY)) /\
-                        np.sqrt( np.sum((x - muX)**2) * \
-                                np.sum((y - muY)**2) )
+    X = X - np.mean(X, axis=0)
+    Y = Y - np.mean(Y, axis=0)
+    rho = X.T @ Y / np.sqrt(np.sum(X**2, axis=0)[:, np.newaxis] @ np.sum(Y**2, axis=0)[np.newaxis, :])
 
     rho[np.isnan(rho)] = 0
     return rho

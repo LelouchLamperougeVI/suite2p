@@ -3,6 +3,24 @@ from suite2p.blat.utils import fast_smooth, accumarray
 from sklearn import metrics
 from scipy.ndimage import gaussian_filter
 from scipy import stats
+from joblib import Parallel, delayed
+
+def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10):
+    """
+    Use this to sample-match n for decoding.
+    """
+    def job(i):
+        sample = np.random.choice(n.shape[0], nsize)
+        ret = crossvalidate(x, n[sample, :], bins=bins, dt=dt, sigma=sigma, k=k)
+        return ret['error']['overall'], ret['error']['error'], ret['error']['sem']
+
+    ret = Parallel(n_jobs=-1, backend='threading')(delayed(job)(i) for i in range(nboots))
+    error = np.array([r[0] for r in ret])
+    mu = np.array([r[1] for r in ret])
+    sem = np.array([r[2] for r in ret])
+
+    return error, mu, sem
+
 
 def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10):
     n = n * 100
