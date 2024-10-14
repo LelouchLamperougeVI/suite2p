@@ -60,19 +60,35 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     mvt = detect_mvt(vel, gaps=.25, fs=fs, prioritize='movement')
     
     # convert cumulative to raw positions from trials
-    trial_idx, _ = ts_extractor(trial, si=5e3, thres=2)
+    trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive')
     epochs = np.zeros_like(pos)
-    reward_idx, _ = ts_extractor(reward, thres=2)
+    reward_idx, _ = ts_extractor(reward, thres=2, polarity='positive')
     if (trial_idx.shape[0] == 2) & (reward_idx.shape[0] == 0):
         print("automatically detected rest session")
         epochs[trial_idx[0]:trial_idx[1]] = 1
         trial_idx = np.array([])
     elif trial_idx.shape[0] > 2:
         print("automatically detected run session")
-        epochs[trial_idx[0]:trial_idx[-1]] = 2
-        trial_idx = trial_idx[:-1]
+        # epochs[trial_idx[0]:trial_idx[-1]] = 2
+        # trial_idx = trial_idx[:-1]
         for t in trial_idx:
             pos[t:] -= pos[t]
+            
+        trial_ids = np.round(trial[trial_idx + 10]).astype(int)
+        trial_seq = np.unique(trial_ids)
+        ptr = np.flatnonzero(trial_seq == 2)[0]
+        idx = []
+        for i in np.flatnonzero(trial_ids == trial_seq[0]):
+            if len(trial_ids) - i < len(trial_seq) + 1:
+                break
+            if not np.all(trial_ids[i:i + len(trial_seq)] == trial_seq):
+                raise RuntimeError("misordered trial sequence found, check raw trace for errors")
+            epochs[ trial_idx[i]:trial_idx[i + ptr] ] = 3
+            epochs[ trial_idx[i + ptr]:trial_idx[i + ptr + 1] ] = 2
+            epochs[ trial_idx[i + ptr + 1]:trial_idx[i + len(trial_seq)] ] = 3
+            idx.append(i)
+        trial_idx = trial_idx[idx]
+        
         reward_idx = knnsearch(frame_idx, reward_idx)
     else:
         raise RuntimeError("Corrupted trial indices. Automatic rest/run detection failed.")
@@ -91,7 +107,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
         'movement': mvt[frame_idx],
         'ts': frame_idx / fs,
         'fs': twop_fs,
-        'epochs': epochs[frame_idx], # 0 for rejection, 1 for rest, 2 for run
+        'epochs': epochs[frame_idx], # 0 for rejection, 1 for rest, 2 for run, 3 for intertrial
     }
     return behaviour
 
@@ -168,7 +184,7 @@ def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
     return mvt
 
 
-def ts_extractor(t, thres=.1, gapless=False, si=10):
+def ts_extractor(t, thres=.1, gapless=False, si=10, polarity=None):
     """
     Extract logical pulse indices exceeding the threshold.
     For super fast digitizers, analogue rise time can be slower
@@ -178,6 +194,13 @@ def ts_extractor(t, thres=.1, gapless=False, si=10):
     Increase si, the gap factor, if digitizer is super duper
     fast.
     """
+    if polarity == 'positive':
+        t[t < -thres] = np.nan
+    elif polarity == 'negative':
+        t[t > thres] = np.nan
+        t = -t
+    t = np.nan_to_num(t, copy=False, nan=0.0)
+        
     idx = np.flatnonzero(np.diff(t) > thres)
     if gapless:
         si, _ = stats.mode(np.diff(idx))

@@ -159,7 +159,7 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None, length=180.0):
         axs[1].set_title('PV correlation')
         
 
-def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0):
+def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
     
     # length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
@@ -173,16 +173,21 @@ def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0):
 
     rasters = analysis['smooth']['rasters'][ispc, :, :]
     stack = analysis['smooth']['stack'][ispc, :]
-    SI = analysis['SI'][ispc]
-    idx = np.argsort(SI)
-    idx = idx[-1:-(k**2+1):-1]
-    order = np.argsort(np.argmax(stack[idx, :], axis=1))
-    order = idx[order]
+    if sort:
+        SI = analysis['SI'][ispc]
+        idx = np.argsort(SI)
+        idx = idx[-1:-(k**2+1):-1]
+        order = np.argsort(np.argmax(stack[idx, :], axis=1))
+        order = idx[order]
+    else:
+        order = np.flatnonzero(ispc)
 
     fig, axs = plt.subplots(k, k)
     for i, ax in zip(order, axs.flat):
         ax.imshow(-rasters[i, :, :].T, cmap='gray', aspect='auto', \
                   extent=[0, length, laps, 1], interpolation='none')
+        if hline is not None:
+            ax.hlines(hline, 0, length, colors='black')
         if ax is axs.flat[-1]:
             ax.set_xlabel('position (cm)')
             ax.set_ylabel('lap')

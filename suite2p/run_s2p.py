@@ -211,7 +211,7 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                 spks = np.zeros_like(dF)
                 model = np.zeros_like(dF)
                 for i in range(spks.shape[0]):
-                    print(i)
+                    # print(i)
                     failed = True
                     while failed:
                         try:

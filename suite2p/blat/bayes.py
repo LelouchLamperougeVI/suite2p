@@ -22,11 +22,14 @@ def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10):
     return error, mu, sem
 
 
-def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10):
+def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, cv=None):
     n = n * 100
-    cv = np.floor(x.shape[0] / k)
-    cv = np.repeat(np.arange(k), cv)
-    cv = np.concatenate((cv, [k] * (x.shape[0] - cv.shape[0])))
+    if cv is not None:
+        k = np.unique(cv).shape[0]
+    else:
+        cv = np.floor(x.shape[0] / k)
+        cv = np.repeat(np.arange(k), cv)
+        cv = np.concatenate((cv, [k] * (x.shape[0] - cv.shape[0])))
 
     real = np.digitize(x, bins=np.linspace(0, np.max(x), bins+1))
     decoded = np.zeros_like(x)

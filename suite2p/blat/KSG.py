@@ -2,6 +2,7 @@
 KSG estimator
 https://doi.org/10.1103/PhysRevE.69.066138
 
+Compile helper with
 gcc -shared -fPIC -o twocol_unique.so twocol_unique.c
 """
 
@@ -34,13 +35,11 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
     if y.ndim != 1:
         raise ValueError('y needs to be a vector')
 
-    if x.dtype != np.dtype(np.float64): # for speed
+    if x.dtype != np.dtype(np.float64):
         x = x.astype(np.float64)
     if y.dtype != np.dtype(np.float64):
         y = y.astype(np.float64)
 
-    # I = np.zeros((x.shape[0],))
-    # for i in range(x.shape[0]):
     def job(i):
         joint = np.array([x[i, :], y]).T
         joint = twocol_unique(joint.copy())
@@ -62,7 +61,6 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
         n[:, 1] = np.searchsorted(sorty, sorty + e[argy, 1], side='right') - \
                     np.searchsorted(sorty, sorty - e[argy, 1], side='left')
 
-        # I[i] = digamma(k) - 1/k - np.mean(np.sum(digamma(n), axis=1)) + digamma(n.shape[0])
         I = digamma(k) - 1/k - np.mean(np.sum(digamma(n), axis=1)) + digamma(n.shape[0])
         return I
 
@@ -72,17 +70,3 @@ def ksg_mi(x: np.ndarray, y: np.ndarray, k=5, method=1) -> np.ndarray:
         warnings.warn('Estimated mutual information contains negatives.', RuntimeWarning)
     
     return I * np.log2(np.exp(1))
-
-
-# def twocol_unique(x: np.ndarray) -> np.ndarray:
-#     """
-#     Hacky way to get unique rows in a two columns array,
-#     FAST!!!!!
-#     """
-#     ranks = np.apply_along_axis(rankdata, 0, x).astype('uint32')
-#     # ranks = np.argsort(x, axis=0).astype('uint32')
-#     ranks = np.ascontiguousarray(ranks)
-#     vect = ranks.view(np.uint64)
-#     _, idx = np.unique(vect[:, 0], return_index=True)
-
-#     return x[idx, :]

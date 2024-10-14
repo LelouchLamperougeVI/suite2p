@@ -27,15 +27,31 @@ def mkmvt(plane, mode='run'):
     return mvt
     
 
-def plot(plane, patterns, order, mode='run', sigma=3):
+def plot(plane, patterns, order, mode='run', sigma=3, valid_only=True):
+    plt.rcParams['figure.figsize'] = [14, 9]
+
     stack = plane.analysis['smooth']['stack']
+    fs = plane.behaviour['fs']
     spks = plane.spks
     pos = plane.behaviour['position']
-    mvt = plane.behaviour['movement']
     mvt = mkmvt(plane, mode=mode)
 
     spks = spks[:, mvt]
+    pos = pos[mvt]
     _, R = extract(plane, patterns, mode=mode, sigma=sigma)
+    R = normalize(R)
+
+    if valid_only:
+        cumtrials = np.zeros_like(mvt)
+        cumtrials[plane.behaviour['trial']] = 1
+        cumtrials = np.cumsum(cumtrials)
+        cumtrials = cumtrials[mvt]
+        valid = np.array([np.sum( (cumtrials == i) & np.any(R > 3, axis=0) ) / np.sum(cumtrials == i) \
+                            for i in np.unique(cumtrials)])
+        valid = np.isin(cumtrials, np.flatnonzero(valid > .1) + 1)
+        spks = spks[:, valid]
+        R = R[:, valid]
+        pos = pos[valid]
     
     spks = spks[order, :]
     patterns = patterns[:, order]
@@ -53,14 +69,30 @@ def plot(plane, patterns, order, mode='run', sigma=3):
     spks = normalize(spks)
     spks[np.isnan(spks)] = 0
 
+    patterns = patterns.T * np.arange(1, 4)
+    t = np.linspace(0, spks.shape[1]/fs, spks.shape[1])
+
     fig, axs = plt.subplots(3, 2, width_ratios=[1, 20], height_ratios=[3, 1, 1])
-    axs[0, 0].imshow(patterns.T, aspect='auto', interpolation='none')
-    axs[0, 1].imshow(spks, aspect='auto', interpolation='none')
+    axs[0, 0].imshow(patterns, aspect='auto', interpolation='none', cmap='Accent')
+    axs[0, 1].imshow(spks, aspect='auto', interpolation='none', cmap='magma', extent=[0, spks.shape[1]/fs, spks.shape[0], 1])
     axs[0, 1].sharey(axs[0, 0])
-    axs[1, 1].plot(R.T)
+    axs[1, 1].plot(t, R.T)
     axs[1, 1].sharex(axs[0, 1])
-    axs[2, 1].plot(pos[mvt])
+    axs[2, 1].plot(t, pos)
     axs[2, 1].sharex(axs[0, 1])
+
+    axs[0, 0].set_ylabel('ensemble membership')
+    axs[0, 0].set_xlabel('ensemble')
+    axs[0, 1].set_ylabel('sorted neurons')
+    axs[1, 1].set_ylabel('activation (a.u.)')
+    axs[2, 1].set_ylabel('position (cm)')
+    axs[2, 1].set_xlabel('time (sec)')
+
+    axs[0, 1].set_yticks([1, spks.shape[0]])
+    axs[2, 1].set_yticks([0, np.round(np.max(pos))])
+
+    axs[1, 0].remove()
+    axs[2, 0].remove()
     
 
 def pop2ens(analysis, patterns):

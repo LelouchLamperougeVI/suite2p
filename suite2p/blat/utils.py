@@ -5,6 +5,9 @@ Useful generic helper functions.
 import numpy as np
 from scipy import signal
 from joblib import Parallel, delayed
+from itertools import product
+import numpy as np
+
 
 def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     """
@@ -34,6 +37,17 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     
     return A
 
+
+def gethead(x, tail=False):
+    if tail:
+        tails = gethead(x[::-1])
+        return tails[::-1]
+    heads = np.diff(x.astype(bool).astype(int))
+    heads = heads > 0
+    heads = np.insert(heads, 0, False)
+    return heads
+
+
 def corr(X, Y=None, axis=1):
     """
     I can't believe python doesn't have a proper function for getting Pearson correlations...
@@ -60,6 +74,8 @@ def corr(X, Y=None, axis=1):
     Y = Y - np.mean(Y, axis=0)
     rho = X.T @ Y / np.sqrt(np.sum(X**2, axis=0)[:, np.newaxis] @ np.sum(Y**2, axis=0)[np.newaxis, :])
 
+    rho = (rho + rho.T) / 2
+
     rho[np.isnan(rho)] = 0
     return rho
         
@@ -75,6 +91,7 @@ def knnsearch(target, query):
     idx[idx == target.shape[-1]] -= 1
     return idx
 
+
 def fill_gaps(X, gap):
     """
     Get continuous segments in logical array by filling in small gaps.
@@ -85,10 +102,6 @@ def fill_gaps(X, gap):
         X[idx[g]:idx[g+1]] = True
 
     return X
-
-
-from itertools import product
-import numpy as np
 
 
 def accumarray(accmap, a, func=None, size=None, fill_value=0, dtype=None):

@@ -39,7 +39,6 @@ void rankdata (double *x, unsigned int *ranks, size_t N) {
 }
 
 void twocol_unique (double *x, size_t N) {
-/**** RADIX-inspired hack ****/
     unsigned int ranks[N * 2];
 
     qsort(x, N, sizeof(double) * 2, compare_c2); // assume little-endian

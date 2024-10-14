@@ -5,19 +5,23 @@ from scipy.optimize import minimize_scalar
 from suite2p.blat import utils
 from rich import progress
 
-def r2bin(r):
+def r2bin(r, mode='ev'):
     """
     Convert correlation matrix to binary matrix.
     Threshold set by preserving the maximum explained
-    variance in the ogirinal matrix.
+    variance in the ogirinal matrix (mode='ev').
+    Alternatively, set the threshold by preserving
+    the maximum entropy (mode='entropy').
     """
-    d = 1 - r
-    d[np.diagflat(np.ones((r.shape[0],))).astype(bool)] = 0
-    d = squareform(d)
-    ev = lambda t: 1 - utils.corr(d, (d < t).astype(np.float64)).squeeze()**2
-    opt = minimize_scalar(fun=ev, bounds=[0, 2])
-    thres = 1 - opt['x']
-
+    coefs = r[np.triu(np.ones_like(r).astype(bool), 1)]
+    if mode == 'ev':
+        cost = lambda t: 1 - utils.corr(coefs, (coefs > t).astype(np.float64))[0][0]**2
+    elif mode == 'entropy':
+        cost = lambda t: np.nanmin([1 + np.mean(coefs > t) * np.log2(np.mean(coefs > t)) + np.mean(coefs <= t) * np.log2(np.mean(coefs <= t)), 1])
+    else:
+        raise ValueError('mode ' + mode + ' is undefined.')
+    ops = minimize_scalar(fun=cost, bounds=[-1, 1])
+    thres = ops['x']
     return r > thres
 
 

@@ -67,5 +67,9 @@ def ev(plane, rest_epochs, reference=2, control=None, sigma=2):
     ZY = utils.corr(Z, Y)
 
     fev = (XY - XZ * ZY) / (np.sqrt(1 - XZ**2) * np.sqrt(1 - ZY**2))
-    rev = (XZ - XY * ZY) / (np.sqrt(1 - XZ**2) * np.sqrt(1 - ZY**2))
-    return ev.squeeze()
+    rev = (XZ - XY * ZY) / (np.sqrt(1 - XY**2) * np.sqrt(1 - ZY**2))
+
+    fev = fev.squeeze()
+    rev = rev.squeeze()
+    
+    return fev, rev

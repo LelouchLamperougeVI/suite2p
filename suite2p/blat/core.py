@@ -157,6 +157,11 @@ class blatify():
                     data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
                 data['iscell'] = data['iscell'][:, 0].astype(bool)
                 data['spks'] = data['spks'][data['iscell'], :]
+                spks = data['spks'] # filter spurious spikes?
+                for ii, s in enumerate(spks):
+                    thres = np.percentile(s[s > 0], 80)
+                    spks[ii, s < thres] = 0
+                data['spks'] = spks
                 data['plane'] = i
                 data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
                 data['my_ops'] = self.ops
