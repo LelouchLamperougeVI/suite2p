@@ -11,7 +11,7 @@ from .KSG import ksg_mi
 import numpy as np
 from rich.progress import track
 
-def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_000, alpha=.05) -> dict:
+def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_000, alpha=.05, ksg_sigma=30) -> dict:
     """
     Place cells analysis routine.
     Create heat maps (i.e., rasters and stacks), compute SI
@@ -32,12 +32,12 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
 
     silent = np.sum(spks, axis=1) == 0
     SI = np.zeros((spks.shape[0],))
-    SI[~silent] = calc_si(spks[~silent, :], pos)
+    SI[~silent] = calc_si(spks[~silent, :], pos, sigma=ksg_sigma)
     if nboots is None:
         p_SI = np.array([1] * spks.shape[0])
     else:
         p_SI = np.ones((spks.shape[0],))
-        p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos,), nperms=500)
+        p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos, ksg_sigma), nperms=500)
 
     rasters = rasterize(spks, pos=pos, trials=cum_trial, bins=bins)
     rasters[np.isinf(rasters)] = np.nan
@@ -129,7 +129,7 @@ def permutation_test(spks: np.ndarray, func: callable, nperms=500, mode='burst',
             spks = burst_shuffler(spks)
         perms[i, :] = func(spks, *args)
 
-    p = np.sum(truth < perms, axis=0) / nperms
+    p = 1 - np.sum(truth > perms, axis=0) / nperms
     p[p == 0] = 1 / nperms
     
     return p
@@ -159,4 +159,5 @@ def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, KSG=True):
     """
     spks = utils.fast_smooth(spks, sigma, axis=1)
     SI = ksg_mi(spks, pos, k=5)
+    SI[SI < 0] = 0
     return SI

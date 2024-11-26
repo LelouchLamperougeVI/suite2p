@@ -76,6 +76,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
             
         trial_ids = np.round(trial[trial_idx + 10]).astype(int)
         trial_seq = np.unique(trial_ids)
+        trial_seq = np.setdiff1d(trial_seq, [4])
         ptr = np.flatnonzero(trial_seq == 2)[0]
         idx = []
         for i in np.flatnonzero(trial_ids == trial_seq[0]):

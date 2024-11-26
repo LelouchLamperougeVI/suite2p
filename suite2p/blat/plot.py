@@ -159,7 +159,7 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None, length=180.0):
         axs[1].set_title('PV correlation')
         
 
-def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None):
+def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None, contex=None):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
     
     # length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
@@ -182,10 +182,14 @@ def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hli
     else:
         order = np.flatnonzero(ispc)
 
+    if type(ispc[0]) is np.dtype('bool') or bool:
+        ispc = np.flatnonzero(ispc)
+
     fig, axs = plt.subplots(k, k)
     for i, ax in zip(order, axs.flat):
         ax.imshow(-rasters[i, :, :].T, cmap='gray', aspect='auto', \
                   extent=[0, length, laps, 1], interpolation='none')
+        ax.set_title(str(ispc[i]), fontdict={'fontsize': 8})
         if hline is not None:
             ax.hlines(hline, 0, length, colors='black')
         if ax is axs.flat[-1]:

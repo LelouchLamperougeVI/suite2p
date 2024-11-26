@@ -134,6 +134,7 @@ def default_ops():
         "spatial_hp_cp": 0,  # high-pass image spatially by a multiple of the diameter
         "pretrained_model":
             "cyto",  # path to pretrained model or model type string in Cellpose (can be user model)
+        "uncanny": False, # use yours truly's Canny edge detection algo to tighten up the ROIs from cellpose
 
         # classification parameters
         "soma_crop":

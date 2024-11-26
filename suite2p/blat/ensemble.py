@@ -69,7 +69,7 @@ def plot(plane, patterns, order, mode='run', sigma=3, valid_only=True):
     spks = normalize(spks)
     spks[np.isnan(spks)] = 0
 
-    patterns = patterns.T * np.arange(1, 4)
+    patterns = patterns.T * np.arange(1, patterns.shape[0])
     t = np.linspace(0, spks.shape[1]/fs, spks.shape[1])
 
     fig, axs = plt.subplots(3, 2, width_ratios=[1, 20], height_ratios=[3, 1, 1])

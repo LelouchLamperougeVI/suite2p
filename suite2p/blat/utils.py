@@ -3,7 +3,7 @@ Useful generic helper functions.
 """
 
 import numpy as np
-from scipy import signal
+from scipy import signal, stats, special
 from joblib import Parallel, delayed
 from itertools import product
 import numpy as np
@@ -15,7 +15,7 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     """
     if sigma == 0:
         return A
-        
+
     x = np.arange(-sigma*5, sigma*5 + 1) # 5 sigma baby!
     kernel = np.exp(-.5 * x**2 / sigma**2)
     kernel = (kernel / np.sum(kernel))
@@ -34,7 +34,7 @@ def fast_smooth(A: np.ndarray, sigma: int, axis=-1) -> np.ndarray:
     # A = np.array([smooth(v) for v in A])
     A = A.reshape(og_shape)
     A = np.moveaxis(A, source=-1, destination=axis)
-    
+
     return A
 
 
@@ -48,12 +48,38 @@ def gethead(x, tail=False):
     return heads
 
 
-def corr(X, Y=None, axis=1):
+def corr(X, Y=None, axis=1, pval=False):
     """
-    I can't believe python doesn't have a proper function for getting Pearson correlations...
+    I can't believe python doesn't have a proper function for getting Pearson
+    correlations... Scipy's implementation is slow as fuck. P-values are calculated
+    in the same manner specified in scipy.stats.pearsonr. NaN values will be ignored.
+
+    Inputs
+    ------
+    X (array):
+        Input data array. Must be either vector or 2D matrix.
+    Y (array - optional):
+        Optional second array. If given, returns matrix of size (m, n), where m is
+        the dimension of X and n is the dimension of Y.
+    axis (int):
+        Axis over which to computer pairwise Pearson Correlation coefficients.
+    pval (bool):
+        Whether to return the p-values. If True, method returns tuple (rho, pval).
+        Otherwise (default False), only returns rho.
+
+    Returns
+    -------
+    rho (array):
+        Pearson correlation coefficients. If only X is given, conducts pairwise
+        correlations between vectors specified along axis.
+    (rho, pval):
+        If pval == True, returns p-values.
     """
+    sym = False
     if Y is None:
         Y = X.copy()
+        sym = True
+
     if (X.ndim > 2) | (Y.ndim > 2):
         raise ValueError('X and Y must be either vectors or 2D matrices.')
     if axis not in (0, 1):
@@ -61,24 +87,38 @@ def corr(X, Y=None, axis=1):
 
     if X.ndim == 1:
         X = np.array([X])
-        if axis == 0:
-            X = X.T
+        X = X.T
+    elif axis == 1:
+        X = X.T
     if Y.ndim == 1:
         Y = np.array([Y])
-        if axis == 0:
-            Y = Y.T
-    if axis == 1:
-        X, Y = X.T, Y.T
+        Y = Y.T
+    elif axis == 1:
+        Y = Y.T
 
-    X = X - np.mean(X, axis=0)
-    Y = Y - np.mean(Y, axis=0)
+    n = ~np.isnan(X).astype(int).T @ ~np.isnan(Y).astype(int)
+
+    X = X - np.nanmean(X, axis=0)
+    Y = Y - np.nanmean(Y, axis=0)
+    X[np.isnan(X)] = 0
+    Y[np.isnan(Y)] = 0
     rho = X.T @ Y / np.sqrt(np.sum(X**2, axis=0)[:, np.newaxis] @ np.sum(Y**2, axis=0)[np.newaxis, :])
 
-    rho = (rho + rho.T) / 2
+    if sym:
+        rho = (rho + rho.T) / 2 # guarantee symmetry
 
-    rho[np.isnan(rho)] = 0
-    return rho
-        
+    if not pval:
+        return rho
+
+    unique_n = np.unique(n)
+    p = np.zeros_like(rho)
+    for u in unique_n:
+        dist = stats.beta(u / 2 - 1, u / 2 - 1, loc=-1, scale=2)
+        r, c = np.nonzero(n == u)
+        p[r, c] = 2 * dist.cdf(-abs(rho[r, c]))
+
+    return rho, p
+
 
 def knnsearch(target, query):
     """
@@ -102,6 +142,33 @@ def fill_gaps(X, gap):
         X[idx[g]:idx[g+1]] = True
 
     return X
+
+
+def bino_cdf(x, n, p, verbose=False):
+    """
+    Calculate the CDF of a binomial distribution. For large N, uses the Normal
+    approximation. When the 3-sigma rule is not satisfied (Berry–Esseen theorem),
+    uses the Poisson approximation instead.
+    """
+    if special.comb(n, n / 2) != np.inf:
+        if verbose:
+            print('Exact solution found.')
+        return stats.binom.cdf(x, n, p)
+
+    # check for 3-sigma criterion
+    if (n > 9 * (1 - p) / p) and (n > 9 * p / (1 - p)):
+        # continuity correction from the addition of 1/2
+        if verbose:
+            print('Binomial CDF by normal approximation.')
+        return stats.norm.cdf(x + .5, loc=n * p, scale=np.sqrt(n * p * (1 - p)))
+
+    # check for np <= 1 criterion
+    if verbose:
+        print('Binomial CDF by Poisson approximation.')
+    return stats.poisson.cdf(x, mu=n * p)
+
+    if n * p > 1:
+        warnings.warn('Binomial CDF could not be accurately estimated... Defaulting to Poisson approx.', RuntimeWarning)
 
 
 def accumarray(accmap, a, func=None, size=None, fill_value=0, dtype=None):

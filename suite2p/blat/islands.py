@@ -49,6 +49,7 @@ def mi_mat(x, norm=True, axis=1):
 def bmf(d, patterns = None, count = 0, thres = .99, maxIter=500):
     """
     Binary matrix factorization.
+    https://arxiv.org/abs/1909.03991
     """
     if patterns is None:
         patterns = np.zeros((1, d.shape[0]))
