@@ -2,12 +2,12 @@ import numpy as np
 import h5py
 from scipy import stats, signal
 from sklearn.cluster import KMeans
-from .utils import fast_smooth, knnsearch, fill_gaps
+from .utils import fast_smooth, knnsearch, fill_gaps, gethead
 
 def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) -> dict:
     """
     Extract behaviour from ScanImage HDF5 file.
-    
+
     Params
     ------
     fn          full path to .h5 file
@@ -21,7 +21,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
                 'licks', 'reward', 'trial', 'ts'
                 and 'fs'
     """
-    
+
     with h5py.File(fn, 'r') as file:
         frame = file['Frame'][()]
         licks = file['Lick'][()]
@@ -37,7 +37,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     discrete = np.linspace(v_range[0], v_range[1], num=2**bit_res)
     idx = knnsearch(discrete, pos)
     pos = discrete[idx]
-    
+
     # compute cumulative position, i.e. correct for voltage mod(10)
     heads, tails = ts_extractor(pos)
     for h, t in zip(heads, tails):
@@ -47,7 +47,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
     for h, t in zip(heads, tails):
         pos[t:] += pos[h-1] - pos[t]
         pos[h:t] = pos[t]
-        
+
     # voltage to cm
     if normalize is not None:
         pos = (pos - v_range[0]) / np.diff(v_range) * normalize
@@ -58,9 +58,9 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
 
     #detect movements
     mvt = detect_mvt(vel, gaps=.25, fs=fs, prioritize='movement')
-    
+
     # convert cumulative to raw positions from trials
-    trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive')
+    trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive', uniform=True)
     epochs = np.zeros_like(pos)
     reward_idx, _ = ts_extractor(reward, thres=2, polarity='positive')
     if (trial_idx.shape[0] == 2) & (reward_idx.shape[0] == 0):
@@ -73,7 +73,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
         # trial_idx = trial_idx[:-1]
         for t in trial_idx:
             pos[t:] -= pos[t]
-            
+
         trial_ids = np.round(trial[trial_idx + 10]).astype(int)
         trial_seq = np.unique(trial_ids)
         trial_seq = np.setdiff1d(trial_seq, [4])
@@ -89,7 +89,7 @@ def extract_behaviour(fn, v_range=[-10.0, 10.0], normalize=180.0, bit_res=12) ->
             epochs[ trial_idx[i + ptr + 1]:trial_idx[i + len(trial_seq)] ] = 3
             idx.append(i)
         trial_idx = trial_idx[idx]
-        
+
         reward_idx = knnsearch(frame_idx, reward_idx)
     else:
         raise RuntimeError("Corrupted trial indices. Automatic rest/run detection failed.")
@@ -153,7 +153,7 @@ def extract_plane(behaviour: dict, plane=0, nplanes=4) -> dict:
 def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
     """
     Detect movement epochs.
-    
+
     Params
     ------
     gaps        fill in jitters to get continuous moving epochs
@@ -171,7 +171,7 @@ def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
     kmeans = KMeans(n_clusters=2).fit(x.reshape(-1, 1))
     thres = np.abs(np.diff(kmeans.cluster_centers_.flatten())) / 2 + np.min(kmeans.cluster_centers_.flatten())
     thres = np.exp(thres)
-    
+
     mvt = np.abs(vel) > thres
     if prioritize == "movement":
         mvt = fill_gaps(mvt, fs*gaps)
@@ -185,23 +185,39 @@ def detect_mvt(vel, gaps=.25, fs=1.0, prioritize='movement'):
     return mvt
 
 
-def ts_extractor(t, thres=.1, gapless=False, si=10, polarity=None):
+def ts_extractor(t, thres=.1, gapless=False, si=10, polarity=None, uniform=False):
     """
     Extract logical pulse indices exceeding the threshold.
     For super fast digitizers, analogue rise time can be slower
     than one sampling interval. This method corrects for those
     scenarios.
-    Can use gapless if pulse is uniform (e.g., frame pulses).
+    Can use gapless if pulse intervals are uniform (e.g., frame
+    pulses).
     Increase si, the gap factor, if digitizer is super duper
     fast.
+    If pulses are expected to be of uniform length, set uniform
+    True so that longer pulses due to noise are rejected.
     """
     if polarity == 'positive':
         t[t < -thres] = np.nan
     elif polarity == 'negative':
         t[t > thres] = np.nan
         t = -t
+
+    if uniform:
+        if polarity is None:
+            warnings.warn('Polarity not defined with uniform pulse width. Assuming positive polarity.')
+        heads, tails = gethead(t > thres), gethead(t > thres, tail=True)
+        heads, tails = np.flatnonzero(heads), np.flatnonzero(tails)
+        dur = tails - heads
+        m, _ = stats.mode(dur)
+        bad = (dur > m * 10) | (dur < m * .1)
+        heads, tails = heads[bad], tails[bad]
+        for hd, tl in zip(heads, tails):
+            t[hd:tl + 1] = np.nan
+
     t = np.nan_to_num(t, copy=False, nan=0.0)
-        
+
     idx = np.flatnonzero(np.diff(t) > thres)
     if gapless:
         si, _ = stats.mode(np.diff(idx))
@@ -212,6 +228,9 @@ def ts_extractor(t, thres=.1, gapless=False, si=10, polarity=None):
         good = np.flatnonzero(np.diff(idx) > si)
     if good.shape[0] == 0:
         return np.array([]), np.array([])
+
     heads = idx[np.concatenate(([0], good + 1))]
     tails = idx[np.concatenate((good, [-1]))] + 1
-    return np.unique(heads), np.unique(tails)
+    heads, tails = np.unique(heads), np.unique(tails)
+
+    return heads, tails

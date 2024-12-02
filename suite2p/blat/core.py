@@ -115,6 +115,7 @@ class planepack():
                                 sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
                                 nboots=self.ops['space']['nboots'], alpha=self.ops['space']['alpha'], \
                                 ksg_sigma=self.ops['imaging']['fs'] * self.ops['space']['ksg_sigma'])
+            print(str(np.sum(self.analysis['ispc'])) + ' place cells have been detected (' + str(np.mean(self.analysis['ispc']) * 100) + '%).')
         else:
             self.analysis.update(pc_analysis(self.behaviour, self.spks, bins=self.ops['space']['bins'], \
                                 sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
