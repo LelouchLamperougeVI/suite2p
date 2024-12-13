@@ -171,6 +171,72 @@ def bino_cdf(x, n, p, verbose=False):
         warnings.warn('Binomial CDF could not be accurately estimated... Defaulting to Poisson approx.', RuntimeWarning)
 
 
+def dijkstra(g, start, end):
+    """
+    Implementation of Dijkstra's algo for 2D grid as opposed to
+    graphs as in scipy's implementation.
+
+    Params
+    ------
+    g: ndarray
+        weight matrix
+    start: two elements array
+        coordinates to starting node
+    end: two elements array
+        coordinates to end node
+
+    Returns
+    -------
+    path: tuple of arrays
+        array of x-y indices of shortest connecting path
+
+    e.g.
+        x, y =  dijkstra(np.max(g) - g, [12, 6], [24, 8])
+    """
+    start = np.ravel_multi_index((start[0], start[1]), g.shape)
+    end = np.ravel_multi_index((end[0], end[1]), g.shape)
+
+    neighbourhood = np.array([
+        [-1, -1, -1,  0, 0,  1, 1, 1],
+        [-1,  0,  1, -1, 1, -1, 0, 1]
+    ]).T
+
+    flat_g = g.flatten()
+    backtrace = np.zeros_like(flat_g, dtype=int)
+    visited = np.zeros_like(flat_g, dtype=bool)
+    score = np.ones_like(flat_g) * np.inf
+    score[start] = 0
+
+    current = np.argmin(score)
+    while current != end:
+        visited[current] = True
+
+        neigh = np.squeeze(np.array(np.unravel_index([current], g.shape)))
+        neigh = neighbourhood + neigh
+        neigh = neigh[np.all(neigh >= 0, axis=1), :]
+        neigh = neigh[np.all(neigh < g.shape, axis=1), :]
+        neigh = np.ravel_multi_index((neigh[:, 0], neigh[:, 1]), g.shape)
+        neigh = neigh[~visited[neigh]]
+        if len(neigh) == 0:
+            score[visited] = np.inf
+            current = np.argmin(score)
+            continue
+
+        candidate = flat_g[neigh] + score[current]
+        idx = np.argmin(np.array([score[neigh], candidate]), axis=0).astype(bool)
+        score[neigh[idx]] = candidate[idx]
+        backtrace[neigh[idx]] = current
+
+        score[visited] = np.inf
+        current = np.argmin(score)
+
+    path = [current]
+    while path[-1] != start:
+        path.append(backtrace[path[-1]])
+
+    return np.unravel_index(path, g.shape)
+
+
 def accumarray(accmap, a, func=None, size=None, fill_value=0, dtype=None):
     """
     An accumulation function similar to Matlab's `accumarray` function.
