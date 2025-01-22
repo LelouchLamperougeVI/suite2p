@@ -7,6 +7,7 @@ import json
 import math
 import os
 import time
+import re
 from typing import Union, Tuple, Optional
 
 import numpy as np
@@ -112,7 +113,77 @@ def use_sktiff_reader(tiff_filename, batch_size: Optional[int] = None) -> bool:
         print("NOTE: ScanImageTiffReader not installed, using tifffile")
         return True
 
-def read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff):
+def find_mrois(tif):
+    meta = tif.metadata()
+    frame = tif.data(beg=0, end=1)
+
+    multiplane = re.search('SI.hStackManager.enable = (true|false)', meta)
+    multiplane = re.findall('(true|false)', meta[multiplane.start():multiplane.end()])[0]
+    if multiplane == 'true':
+        match = re.search('SI.hStackManager.zs = \[(-?\d+ ?)*\]', meta)
+        zs = re.findall('(-?\d+)', meta[match.start():match.end()])
+        zs = [int(z) for z in zs]
+    else:
+        match = re.search('SI.hStackManager.zs = -?\d+', meta)
+        zs = re.findall('(-?\d+)', meta[match.start():match.end()])
+        zs = [int(zs[0])]
+
+    rois = re.search('SI.hRoiManager.mroiEnable = \d', meta)
+    if rois is None:
+        rois = 0
+    else:
+        rois = re.findall('\d', meta[rois.start():rois.end()])[0]
+        rois = int(rois[0])
+
+    if not rois:
+        stack = [[frame.shape[1]]] * len(zs)
+    else:
+        rois = re.search('"RoiGroups": {', meta)
+        rois = json.loads('{' + meta[rois.start():])
+        rois = rois['RoiGroups']['imagingRoiGroup']['rois']
+
+        stack = []
+        for z in zs:
+            rs = []
+            for r in rois:
+                if isinstance(r['scanfields'], list):
+                    for rr, zz in zip(r['scanfields'], r['zs']):
+                        if rr['enable'] and (zz == z or not r['discretePlaneMode']):
+                            rs.append(rr['pixelResolutionXY'][1])
+                else:
+                    if r['enable'] and (r['zs'] == z or not r['discretePlaneMode']):
+                        rs.append(r['scanfields']['pixelResolutionXY'][1])
+            stack.append(rs)
+
+    gaps = []
+    for s in stack:
+        if len(s) > 1:
+            gap = frame.shape[1] - sum(s)
+            gap /= len(s) - 1
+        else:
+            gap = 0
+        if gap % 1 != 0.0:
+            raise RuntimeError('Non-uniform gapping detected. Bitch, you really messed up your recording lol.')
+        gap = int(gap)
+        s.insert(0, -gap * 2)
+        tmp = np.cumsum(np.array(s) + gap)
+        s.clear()
+        s.extend(tmp.tolist())
+        gaps.append(gap)
+
+    return stack, gaps
+
+def mroi_split(tif, im, nchan=1, chan=0):
+    """
+    Added integration of MROIs from ScanImage
+    """
+    stack, gaps = find_mrois(tif)
+    rois = [[im[i + chan::len(stack) * nchan, plane[j] + gap : plane[j + 1], :] \
+                    for j in range(len(plane) - 1)] \
+                    for i, (plane, gap) in enumerate(zip(stack, gaps))]
+    return rois
+
+def read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff, nchannels, nfunc):
     # tiff reading
     if ix >= Ltif:
         return None
@@ -137,6 +208,9 @@ def read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff):
 
     if im.shape[0] > nfr:
         im = im[:nfr, :, :]
+
+    if not use_sktiff:
+        im = mroi_split(tif, im, nchan=nchannels, chan=nfunc)
 
     return im
 
@@ -183,40 +257,69 @@ def tiff_to_binary(ops):
         # keep track of the plane identity of the first frame (channel identity is assumed always 0)
         if ops["first_tiffs"][ik]:
             which_folder += 1
-            iplane = 0
+            # iplane = 0
+            if not use_sktiff:
+                stack, gaps = find_mrois(tif)
+                nplanes = len(stack)
+                ops['nplanes'] = sum([len(s) - 1 for s in stack])
+                ops1 = utils.init_ops(ops)
+                ops1, fs, reg_file, reg_file_chan2 = utils.find_files_open_binaries(ops1, False)
+                batch_size = ops["batch_size"]
+                batch_size = nplanes * nchannels * math.ceil(batch_size / (nplanes * nchannels))
+
         ix = 0
         while 1:
-            im = read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff)
-            if im is None:
-                break          
-            nframes = im.shape[0]
-            for j in range(0, nplanes):
-                if ik == 0 and ix == 0:
-                    ops1[j]["nframes"] = 0
-                    ops1[j]["frames_per_file"] = np.zeros((len(fs),), dtype=int)
-                    ops1[j]["meanImg"] = np.zeros((im.shape[1], im.shape[2]),
-                                                  np.float32)
-                    if nchannels > 1:
-                        ops1[j]["meanImg_chan2"] = np.zeros((im.shape[1], im.shape[2]),
-                                                            np.float32)
-                i0 = nchannels * ((iplane + j) % nplanes)
-                if nchannels > 1:
-                    nfunc = ops["functional_chan"] - 1
-                else:
-                    nfunc = 0
-                im2write = im[int(i0) + nfunc:nframes:nplanes * nchannels]
+            if nchannels > 1:
+                nfunc = ops["functional_chan"] - 1
+            else:
+                nfunc = 0
 
-                reg_file[j].write(bytearray(im2write))
-                ops1[j]["meanImg"] += im2write.astype(np.float32).sum(axis=0)
-                ops1[j]["nframes"] += im2write.shape[0]
-                ops1[j]["frames_per_file"][ik] += im2write.shape[0]
-                ops1[j]["frames_per_folder"][which_folder] += im2write.shape[0]
-                #print(ops1[j]["frames_per_folder"][which_folder])
+            rois = read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff, nchannels, nfunc)
+            if rois is None:
+                break
+
+            if use_sktiff:
+                rois = [[rois[nfunc::nplanes * nchannels, :, :]] for p in range(nplanes)]
                 if nchannels > 1:
-                    im2write = im[int(i0) + 1 - nfunc:nframes:nplanes * nchannels]
-                    reg_file_chan2[j].write(bytearray(im2write))
-                    ops1[j]["meanImg_chan2"] += im2write.mean(axis=0)
-            iplane = (iplane - nframes / nchannels) % nplanes
+                    red = [[rois[1 - nfunc::nplanes * nchannels, :, :]] for p in range(nplanes)]
+                else:
+                    red = rois
+            else:
+                if nchannels > 1:
+                    red = read_tiff(file, tif, Ltif, ix, batch_size, use_sktiff, nchannels, 1 - nfunc)
+                else:
+                    red = rois
+
+            nframes = rois[0][0].shape[0] * nplanes * nchannels
+            counter = 0
+            for j in range(0, nplanes):
+                for i, (im, rm) in enumerate(zip(rois[j], red[j])):
+                    if ik == 0 and ix == 0:
+                        ops1[counter]["nframes"] = 0
+                        ops1[counter]["frames_per_file"] = np.zeros((len(fs),), dtype=int)
+                        ops1[counter]["meanImg"] = np.zeros((im.shape[1], im.shape[2]),
+                                                      np.float32)
+                        if nchannels > 1:
+                            ops1[counter]["meanImg_chan2"] = np.zeros((rm.shape[1], rm.shape[2]),
+                                                                np.float32)
+                    # i0 = nchannels * ((iplane + j) % nplanes)
+
+                    # im2write = im[int(i0) + nfunc:nframes:nplanes * nchannels]
+                    im2write = im
+
+                    reg_file[counter].write(bytearray(im2write))
+                    ops1[counter]["meanImg"] += im2write.astype(np.float32).sum(axis=0)
+                    ops1[counter]["nframes"] += im2write.shape[0]
+                    ops1[counter]["frames_per_file"][ik] += im2write.shape[0]
+                    ops1[counter]["frames_per_folder"][which_folder] += im2write.shape[0]
+                    #print(ops1[j]["frames_per_folder"][which_folder])
+                    if nchannels > 1:
+                        # im2write = im[int(i0) + 1 - nfunc:nframes:nplanes * nchannels]
+                        im2write = rm
+                        reg_file_chan2[counter].write(bytearray(im2write))
+                        ops1[counter]["meanImg_chan2"] += im2write.mean(axis=0)
+                    counter += 1
+            # iplane = (iplane - nframes / nchannels) % nplanes
             ix += nframes
             ntotal += nframes
             if ntotal % (batch_size * 4) == 0:

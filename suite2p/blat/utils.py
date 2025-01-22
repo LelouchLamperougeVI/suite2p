@@ -189,6 +189,8 @@ def dijkstra(g, start, end):
     -------
     path: tuple of arrays
         array of x-y indices of shortest connecting path
+    score: float
+        score of shortest path
 
     e.g.
         x, y =  dijkstra(np.max(g) - g, [12, 6], [24, 8])
@@ -234,7 +236,7 @@ def dijkstra(g, start, end):
     while path[-1] != start:
         path.append(backtrace[path[-1]])
 
-    return np.unravel_index(path, g.shape)
+    return np.unravel_index(path, g.shape), score[current]
 
 
 def accumarray(accmap, a, func=None, size=None, fill_value=0, dtype=None):
