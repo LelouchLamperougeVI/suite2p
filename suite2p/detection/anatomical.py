@@ -14,6 +14,7 @@ import os
 
 from . import utils
 from .stats import roi_stats
+from suite2p import uncanny
 
 
 def mask_centers(masks):
@@ -100,7 +101,7 @@ def refine_masks(stats, patches, seeds, diam, Lyc, Lxc):
 
 
 def roi_detect(mproj, diameter=None, cellprob_threshold=0.0, flow_threshold=1.5,
-               pretrained_model=None, uncanny=True, mimg=None):
+               pretrained_model=None, do_uncanny=True, mimg=None, model_path=''):
     pretrained_model = "cyto3" if pretrained_model is None else pretrained_model
     if not os.path.exists(pretrained_model):
         model = Cellpose(model_type=pretrained_model)
@@ -111,22 +112,24 @@ def roi_detect(mproj, diameter=None, cellprob_threshold=0.0, flow_threshold=1.5,
                        flow_threshold=flow_threshold)[0]
     shape = masks.shape
     _, masks = np.unique(np.int32(masks), return_inverse=True)
-    masks = masks.reshape(shape)      
+    masks = masks.reshape(shape)
     centers, mask_diams = mask_centers(masks)
     median_diam = np.median(mask_diams)
 
-    if uncanny:
+    if do_uncanny:
         if mimg is None:
             mimg = mproj
-        masks = uncanny_detect(masks, mimg, diameter=median_diam)
+        # masks = uncanny_detect(masks, mimg, diameter=median_diam)
+        masks = uncanny.detect(masks, mimg, model_path, diameter=median_diam)
         centers, mask_diams = mask_centers(masks)
         median_diam = np.median(mask_diams)
-        
+
     print(">>>> %d masks detected, median diameter = %0.2f " %
           (masks.max(), median_diam))
     return masks, centers, median_diam, mask_diams.astype(np.int32)
 
 
+# old deprecated, replaced by LGN UNet uncanny
 def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
     """
     The masks coming out of Cellpose look like shit (too dilated, no clear edges).
@@ -172,7 +175,7 @@ def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
     y = cv2.Sobel(src=smooth, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=3)
     gradient = np.sqrt(x**2 + y**2)
     direction = np.arctan2(y, x)
-    
+
     refined_masks = np.zeros_like(masks)
     counter = 1
     # Canny edge detection for individual ROIs
@@ -187,7 +190,7 @@ def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
                             np.arange(np.max([rx[0] - dilation, 0]), np.min([rx[1] + dilation + 1, masks.shape[1]])))]
         m = masks[np.ix_(np.arange(np.max([ry[0] - dilation, 0]), np.min([ry[1] + dilation + 1, masks.shape[0]])), \
                             np.arange(np.max([rx[0] - dilation, 0]), np.min([rx[1] + dilation + 1, masks.shape[1]])))] == n
-        
+
         # thresholding to find edges
         prct = np.percentile(g, thres)
         d[d < 0] = np.pi + d[d < 0]
@@ -195,7 +198,7 @@ def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
         d[d == 5] = 1
         thinned = (g > prct) & m
         d = d * thinned
-        
+
         # edge thinning by lower bound thresholding
         comp = np.zeros((2, d.shape[0], d.shape[1]))
         comp[0, :, :] += np.roll(np.roll(d == 1, shift=1, axis=1) * g, shift=-1, axis=1)
@@ -206,13 +209,13 @@ def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
         comp[1, :, :] += np.roll(np.roll(d == 3, shift=-1, axis=0) * g, shift=1, axis=0)
         comp[0, :, :] += np.roll(np.roll(d == 4, shift=(1, 1), axis=(0, 1)) * g, shift=(-1, -1), axis=(0, 1))
         comp[1, :, :] += np.roll(np.roll(d == 4, shift=(-1, -1), axis=(0, 1)) * g, shift=(1, 1), axis=(0, 1))
-        
+
         thinned = np.all(thinned & (g > comp), axis=0).astype(np.uint8)
-        
+
         # fill contours
         kernel = np.ceil(np.sqrt(np.sum(m) / np.pi)).astype(int)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel,) * 2)
-    
+
         for _ in range(2): # do it twice for good luck :)
             thinned = cv2.morphologyEx(thinned, cv2.MORPH_CLOSE, kernel)
             contours, _ = cv2.findContours(thinned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -223,10 +226,10 @@ def uncanny_detect(masks, mimg, diameter=None, dilation=2, thres=75):
             thinned[thinned > 0] = 1
         thinned = thinned.astype(bool)
         thinned &= m
-    
+
         if np.sum(thinned) == 0:
             continue
-            
+
         refined_masks[np.ix_(np.arange(np.max([ry[0] - dilation, 0]), np.min([ry[1] + dilation + 1, masks.shape[0]])), \
                             np.arange(np.max([rx[0] - dilation, 0]), np.min([rx[1] + dilation + 1, masks.shape[1]])))] \
                             += thinned * counter
@@ -330,7 +333,7 @@ def select_rois(ops: Dict[str, Any], mov: np.ndarray, diameter=None):
         img, diameter=diameter[1], flow_threshold=ops["flow_threshold"],
         cellprob_threshold=ops["cellprob_threshold"],
         pretrained_model=ops["pretrained_model"],
-        uncanny=ops['uncanny'], mimg=mean_img)
+        do_uncanny=ops['uncanny'], mimg=mean_img, model_path=ops['uncanny_model'])
     if rescale != 1.0:
         masks = cv2.resize(masks, (Lxc, Lyc), interpolation=cv2.INTER_NEAREST)
         img = cv2.resize(img, (Lxc, Lyc))

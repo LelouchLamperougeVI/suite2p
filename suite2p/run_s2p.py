@@ -13,6 +13,7 @@ import numpy as np
 #from scipy.io import savemat
 
 from . import extraction, io, registration, detection, classification, default_ops
+from .deepcad_denoise import deepcad_denoise
 
 try:
     import pynwb
@@ -161,6 +162,13 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                   plane_times["registration_metrics"])
             if ops.get("ops_path"):
                 np.save(ops["ops_path"], ops)
+
+    if ops['deepcad'] != '' and not ops['denoised']:
+        print('----- Denoising registered image stack with DeepCAD -----')
+        deepcad_denoise(f_reg, ops['deepcad'])
+        ops['denoised'] = True
+    else:
+        print('----- Frames already denoised with DeepCAD, skipping -----')
 
     if ops.get("roidetect", True):
         n_frames, Ly, Lx = f_reg.shape

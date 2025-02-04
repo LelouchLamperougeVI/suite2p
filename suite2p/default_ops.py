@@ -135,6 +135,7 @@ def default_ops():
         "pretrained_model":
             "cyto",  # path to pretrained model or model type string in Cellpose (can be user model)
         "uncanny": False, # use yours truly's Canny edge detection algo to tighten up the ROIs from cellpose
+        "uncanny_model": '/home/loulou/Documents/GitHub/suite2p/analyses/sandbox/lgn-unet.pth',
 
         # classification parameters
         "soma_crop":
@@ -165,4 +166,8 @@ def default_ops():
         "sig_baseline": 10.,  # smoothing constant for gaussian filter
         "prctile_baseline": 8.,  # optional (whether to use a percentile baseline)
         "neucoeff": 0.7,  # neuropil coefficient
+
+        # deepcad
+        "deepcad": '',
+        "denoised": False,
     }
