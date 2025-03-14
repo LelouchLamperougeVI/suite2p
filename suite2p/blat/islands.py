@@ -60,19 +60,19 @@ def bmf(d, patterns = None, count = 0, thres = .99, maxIter=500):
     idx = idx[::-1]
     idx_ = np.argsort(idx)
     d_ = d[np.ix_(idx, idx)]
-      
+
     m = np.ceil(np.max(np.argwhere(np.sum(d_, axis = 0) > 0)) / 2).astype(int)
     idx = np.sum(np.logical_and(d_[:, m], d_), axis = 1) / np.sum(d_[:, m]) > thres
-    
+
     if np.sum(idx) > 1: # do not consider noise vectors
         pattern, _ = stats.mode(d_[:, idx].astype(int), axis = 1)
         patterns[-1, :] = pattern[idx_]
         patterns = np.vstack((patterns, np.zeros((1, d_.shape[0]))))
-      
+
     d_[:, idx] = False
     d_[idx, :] = False
     d_ = d_[np.ix_(idx_, idx_)]
-      
+
     return bmf(d_, patterns, count+1)
 
 

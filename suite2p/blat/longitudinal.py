@@ -1,6 +1,7 @@
 import numpy as np
 from skimage.transform import warp_polar, rotate
 from scipy.signal import fftconvolve
+from tqdm.notebook import tqdm
 
 def mkmask(stat, Ly, Lx, iscell=None):
     """
@@ -26,6 +27,19 @@ def mkmask(stat, Ly, Lx, iscell=None):
     return mask
 
 
+def mask2stats(mask):
+    """
+    override xpix/ypix in stat from mask.
+    """
+    rois = np.setdiff1d(np.unique(mask), [-1])
+    stats = []
+    for i in rois:
+        ypix, xpix = np.argwhere(mask == i).T
+        stats.append({'xpix': xpix, 'ypix': ypix})
+    stats = np.array(stats)
+    return stats
+
+
 def crossdays(planes: list) -> list:
     """
     This is the main registeration method.
@@ -35,9 +49,11 @@ def crossdays(planes: list) -> list:
     Lx = [p.s2p_ops[()]['Lx'] for p in planes]
     if (np.unique(Ly).shape[0] > 1) | (np.unique(Lx).shape[0] > 1):
         raise ValueError("Inconsistent pixel resolutions across recordings. Are you should these are the same experiments?")
-    
-    stats = [p.stat[p.iscell] for p in planes]
-    idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in stats]
+
+    # stats = [p.stat[p.iscell] for p in planes]
+    stats = [mask2stats(p.mask) for p in planes]
+    idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in tqdm(stats)]
+    # idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in stats]
     return idx
 
 
@@ -46,7 +62,7 @@ def regmasks(fixed, moving, Ly, Lx):
     mov_stat = moving
     fixed = mkmask(fixed, Ly, Lx)
     moving = mkmask(moving, Ly, Lx)
-    
+
     _, rot, drifty, driftx = register(fixed, moving)
     mov_stat = lintransform(mov_stat, Ly, Lx, rot, drifty, driftx)
     match, dist = jaccard(fixed_stat, mov_stat)
@@ -54,7 +70,8 @@ def regmasks(fixed, moving, Ly, Lx):
     return match, dist
 
 
-def jaccard(fixed, moving, thres=.25):
+# def jaccard(fixed, moving, thres=.25):
+def jaccard(fixed, moving, thres=0.0):
     dist = np.zeros(moving.shape)
     match = np.empty(moving.shape)
     match.fill(np.nan)
@@ -121,15 +138,15 @@ def register(fixed, moving, twostep=True, maxIter=100):
         
         if it == maxIter:
             print('Maximum iterations reached. Registration did not converge.')
-        else:
-            print('Registration converged after', it, 'steps.')
+        # else:
+            # print('Registration converged after', it, 'steps.')
 
         reg = transform(moving, rot=rot, drifty=drifty, driftx=driftx)
         return reg, rot, drifty, driftx
 
     reg, rot, drifty, driftx = do(moving)
     if twostep:
-        print('Two-step enabled. Registering a second time.')
+        # print('Two-step enabled. Registering a second time.')
         reg, crot, cdrifty, cdriftx = do(reg)
         rot += crot
         drifty += cdrifty

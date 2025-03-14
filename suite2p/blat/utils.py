@@ -239,6 +239,15 @@ def dijkstra(g, start, end):
     return np.unravel_index(path, g.shape), score[current]
 
 
+def squareform(X):
+    """
+    Get the upper triangle of any matrix
+    """
+    idx = np.ones(X.shape, dtype=bool)
+    idx = np.triu(idx, 1)
+    return X[idx]
+
+
 def accumarray(accmap, a, func=None, size=None, fill_value=0, dtype=None):
     """
     An accumulation function similar to Matlab's `accumarray` function.

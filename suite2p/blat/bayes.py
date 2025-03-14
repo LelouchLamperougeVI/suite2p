@@ -22,7 +22,10 @@ def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10):
     return error, mu, sem
 
 
-def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, cv=None):
+def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, cv=None, margin=.1, mode='loo'):
+    """
+    modes: 'loo', 'sequential'
+    """
     n = n * 100
     if cv is not None:
         k = np.unique(cv).shape[0]
@@ -34,8 +37,12 @@ def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, c
     real = np.digitize(x, bins=np.linspace(0, np.max(x), bins+1))
     decoded = np.zeros_like(x)
     likelihood = np.zeros((x.shape[0], bins))
-    for i in range(k):
-        decoded[cv == i], likelihood[cv == i, :] = decode(x[cv != i], n[:, cv != i], n[:, cv == i], bins=bins, dt=dt, sigma=sigma)
+    if mode == 'loo':
+        for i in range(k):
+            decoded[cv == i], likelihood[cv == i, :] = decode(x[cv != i], n[:, cv != i], n[:, cv == i], bins=bins, dt=dt, sigma=sigma)
+    if mode == 'sequential':
+        for i in range(k):
+            decoded[cv == (i+1)%k], likelihood[cv == (i+1)%k, :] = decode(x[cv == i], n[:, cv == i], n[:, cv == (i+1)%k], bins=bins, dt=dt, sigma=sigma)
 
     cm = metrics.confusion_matrix(real, decoded)
     cm = gaussian_filter(cm / np.mean(cm), sigma)
@@ -44,12 +51,18 @@ def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, c
     real = real * np.max(x) / bins
     decoded = decoded * np.max(x) / bins
 
+    # circ_idx = np.abs(real - decoded) > (np.max(x) - np.abs(real - decoded))
+    # decoded[circ_idx] = decoded[circ_idx]
+    decoded[np.abs(real - decoded) > np.abs(real - decoded + np.max(x))] -= np.max(x)
+    decoded[np.abs(real - decoded) > np.abs(real - decoded - np.max(x))] += np.max(x)
+    decoded[(decoded > np.max(x)*(1 + margin)) | (decoded < -np.max(x)*margin)] %= np.max(x)
+
     error = np.array([np.abs(real - decoded), np.max(x) - np.abs(real - decoded)])
     error = np.min(error, axis=0)
     mu = accumarray(idx, error, func=np.mean)
     sem = accumarray(idx, error, func=stats.sem)
-    
-    error = np.sqrt(np.mean((real - decoded)**2))
+
+    error = np.mean(np.abs(real - decoded))
 
     ret = {
         'real': real,

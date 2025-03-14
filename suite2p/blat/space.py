@@ -7,9 +7,12 @@ TODO:
 """
 
 from . import utils
-from .KSG import ksg_mi
+# from .KSG import ksg_mi
+from libKSG import KSG
+from multiprocessing import Pool
+import threading
 import numpy as np
-from rich.progress import track
+from rich.progress import Progress
 
 def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_000, alpha=.05, ksg_sigma=30) -> dict:
     """
@@ -37,12 +40,12 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
         p_SI = np.array([1] * spks.shape[0])
     else:
         p_SI = np.ones((spks.shape[0],))
-        p_SI[~silent] = permutation_test(spks[~silent, :], func=calc_si, args=(pos, ksg_sigma), nperms=500)
+        p_SI[~silent] = permutation_test(spks[~silent, :], pos, ksg_sigma=ksg_sigma, nperms=500)
 
     rasters = rasterize(spks, pos=pos, trials=cum_trial, bins=bins)
     rasters[np.isinf(rasters)] = np.nan
     srasters = utils.fast_smooth(rasters, 2, axis=1)
-    
+
     stack = rasterize(spks, pos, bins=bins)
     stack[np.isinf(stack)] = np.nan
     sstack = utils.fast_smooth(stack, 2, axis=1)
@@ -112,26 +115,51 @@ def splithalf(raster):
     return r
 
 
-def permutation_test(spks: np.ndarray, func: callable, nperms=500, mode='burst', args=tuple()):
+def _si_initializer():
+    global ksg_obj
+    ksg_obj = KSG()
+
+def _si_job_circ(x):
+    (spks, pos, sigma) = x
+    shift = np.random.randint(spks.shape[1])
+    spks = np.roll(spks, shift, axis=1)
+    spks = utils.fast_smooth(spks, sigma=sigma, axis=1)
+    return ksg_obj.mi(spks, pos)
+
+def _si_job_burst(x):
+    (spks, pos, sigma) = x
+    spks = burst_shuffler(spks)
+    spks = utils.fast_smooth(spks, sigma=sigma, axis=1)
+    return ksg_obj.mi(spks, pos)
+
+def permutation_test(spks: np.ndarray, pos: np.ndarray, ksg_sigma=30, nperms=500, mode='burst'):
     """
     Shuffle spike trains. Either 'circ' mode or 'burst' shuffler.
     If shift is None, shuffle by random factor. Calls func at each
     permutation. func must be of form fun(spks, *args) and must
     return an array of shape (spks.shape[0],).
+    UPDATE: only calculates SI now.....
     """
-    truth = func(spks, *args)
-    perms = np.zeros((nperms, truth.shape[0]))
-    for i in track(range(nperms), description='permutation testing...'):
-        if mode == 'circ':
-            shift = np.random.randint(spks.shape[1])
-            spks = np.roll(spks, shift, axis=1)
-        elif mode == 'burst':
-            spks = burst_shuffler(spks)
-        perms[i, :] = func(spks, *args)
+    truth = calc_si(spks, pos, sigma=ksg_sigma)
+    # perms = np.zeros((nperms, truth.shape[0]))
+    # for i in track(range(nperms), description='permutation testing...'):
+    pool = Pool(initializer=_si_initializer)
+    if mode == 'circ':
+        workload = pool.imap_unordered(_si_job_circ, [(spks, pos, ksg_sigma) for _ in range(nperms)])
+    elif mode == 'burst':
+        workload = pool.imap_unordered(_si_job_burst, [(spks, pos, ksg_sigma) for _ in range(nperms)])
+
+    perms = []
+    with Progress() as progress:
+        task_id = progress.add_task('permutation testing...', total=nperms)
+        for ret in workload:
+                perms.append(ret)
+                progress.advance(task_id)
+    perms = np.array(perms)
 
     p = 1 - np.sum(truth > perms, axis=0) / nperms
     p[p == 0] = 1 / nperms
-    
+
     return p
 
 
@@ -150,7 +178,7 @@ def burst_shuffler(spks: np.ndarray):
     return spks
 
 
-def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, KSG=True):
+def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30):
     """
     Calculate spatial information (i.e., mutual information)
     Between spike trains and position using the more robust
@@ -158,6 +186,7 @@ def calc_si(spks: np.ndarray, pos: np.ndarray, sigma=30, KSG=True):
     the traditional Skaggs method.
     """
     spks = utils.fast_smooth(spks, sigma, axis=1)
-    SI = ksg_mi(spks, pos, k=5)
+    ksg = KSG()
+    SI = ksg.mi(spks, pos, k=5)
     SI[SI < 0] = 0
     return SI

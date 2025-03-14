@@ -157,7 +157,9 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None, length=180.0):
         axs[1].set_xticks([0, length])
         axs[1].set_yticks([])
         axs[1].set_title('PV correlation')
-        
+
+    return fig
+
 
 def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None, contex=None):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
@@ -202,3 +204,5 @@ def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hli
         else:
             ax.set_xticks([])
             ax.set_yticks([])
+
+    return fig

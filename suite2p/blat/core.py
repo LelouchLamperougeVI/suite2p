@@ -4,7 +4,7 @@ import numpy as np
 import warnings
 import copy
 from scipy import stats
-from .behaviour import extract_behaviour, stitch, extract_plane
+from .behaviour import extract_behaviour, stitch, extract_plane, infer_motion
 from .space import pc_analysis
 from .bayes import crossvalidate
 from .longitudinal import mkmask
@@ -37,8 +37,14 @@ default_ops = {
         'k': 10,
     },
     'imaging': {
-        'flybacks': None,
+        'flybacks': None, # list of bool, index of flyback planes
         'ca_sustain': .5, # number of sustain frames for cafilt() in seconds
+    },
+    'behaviour': {
+        'missing': None, # list[bool]
+        'infer': False, # bool
+        'block_lengths': None, # needs to be specified if non-uniform frames per block
+        'split_planes': True, # whether to split behaviour by plane (set False if mROIs)
     },
 }
 
@@ -64,11 +70,11 @@ class planepack():
 
         Lx = ops['Lx']
         Ly = ops['Ly']
-        
+
         xoff = np.concatenate(([0], ops['xoff']))
         yoff = np.concatenate(([0], ops['yoff']))
         self.regshift = np.sqrt(np.diff(xoff)**2 + np.diff(yoff)**2)
-        
+
         green = ops['meanImg']
         green = (green - np.min(green)) / np.ptp(green)
         if 'meanImg_chan2' in ops.keys():
@@ -77,11 +83,11 @@ class planepack():
         else:
             red = np.zeros_like(green)
         self.mimg = np.stack((red, green, np.zeros(green.shape)), axis=2)
-        
+
         iscell = np.flatnonzero(self.iscell)
         self.mask = mkmask(self.stat, Ly, Lx, iscell)
 
-    
+
     def decode(self):
         print('running maximum a posteriori estimation')
         mvt = self.behaviour['movement'] & (self.behaviour['epochs'] == 2)
@@ -145,10 +151,7 @@ class blatify():
         planes = sorted([f for f in planes if re.search('^plane\d+$', f)])
         print('found', len(planes), 'planes:', planes)
 
-        if self.ops['imaging']['flybacks'] is None:
-            flybacks = [False] * len(planes)
-        else:
-            flybacks = self.ops['imaging']['flybacks']
+        flybacks = [False] * len(planes) if self.ops['imaging']['flybacks'] is None else self.ops['imaging']['flybacks']
         if len(flybacks) != len(planes):
             raise RuntimeError('Length of flybacks list does not match number of planes.')
 
@@ -156,6 +159,13 @@ class blatify():
         for beh in beh_files:
             print('extracting behaviour', beh)
             behaviours.append(extract_behaviour(os.path.join(path, beh), normalize=self.ops['space']['length']))
+        if self.ops['behaviour']['missing'] is not None or self.ops['behaviour']['infer']:
+            missing = self.ops['behaviour']['missing'] if self.ops['behaviour']['missing'] is not None else [False,] * len(behaviours)
+            ops = [np.load(os.path.join(path, self.ops['files']['subfolder'], plane, self.ops['load']['ops']), allow_pickle=True)
+                for (i, plane), fly in zip(enumerate(planes), flybacks) if not fly]
+            behaviours = infer_motion(ops, behaviours, missing, self.ops['behaviour']['block_lengths'],
+                                      [i for i, fly in enumerate(flybacks) if not fly], len(planes),
+                                      self.ops['behaviour']['infer'])
         behaviour = stitch(behaviours)
 
         ops = {
@@ -173,7 +183,7 @@ class blatify():
             },
         }
         self.mkops(ops)
-        
+
         self.plane = []
         for (i, plane), fly in zip(enumerate(planes), flybacks):
             if not fly:
@@ -187,10 +197,76 @@ class blatify():
                 data['dFF'] = data['dFF'][data['iscell'], :]
                 data['model'] = data['model'][data['iscell'], :]
                 data['plane'] = i
-                data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
+                if self.ops['behaviour']['split_planes']:
+                    data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
+                else:
+                    data['behaviour'] = behaviour
                 data['my_ops'] = self.ops
                 self.plane.append(planepack(**data))
 
+
+def split_contexts(plane: planepack, contexts: list[int]) -> list[planepack]:
+    """
+    Split planepack object into separate contexts.
+
+    Inputs:
+    =======
+    plane (planepack)
+        planepack object to be split by context
+
+    contexts (list of int)
+        list of length equal to the number of contexts with
+        the number of repeated trials per context
+
+    Returns:
+    ========
+    split (list of planepack)
+        list containing an instance of planepack for each context
+    """
+    trials = np.zeros_like(plane.behaviour['position'])
+    trials[plane.behaviour['trial']] = 1
+    trials = np.cumsum(trials)
+    trials = (trials - 1) % np.sum(contexts)
+    preserve = plane.behaviour['epochs'] < 2
+
+    contexts.insert(0, 0)
+    ctx_idx = [np.isin(trials, np.arange(a, a+b)) for a, b in zip(contexts[:-1], contexts[1:])]
+    ctx_idx = [c | preserve for c in ctx_idx]
+
+    split = []
+    for i, c in enumerate(ctx_idx):
+        cum_ctx = np.cumsum(c)
+
+        iscell = plane.iscell
+        p = plane.plane
+        ops = plane.s2p_ops
+        my_ops = copy.deepcopy(plane.ops)
+        my_ops['context'] = i
+        stat = plane.stat
+
+        spks = copy.deepcopy(plane.spks[:, c])
+        model = copy.deepcopy(plane.model[:, c])
+        dFF = copy.deepcopy(plane.dFF[:, c])
+
+        behaviour = copy.deepcopy(plane.behaviour)
+        behaviour['reward'] = behaviour['reward'].astype(int) # weird bug
+        behaviour['position'] = behaviour['position'][c]
+        behaviour['velocity'] = behaviour['velocity'][c]
+        behaviour['movement'] = behaviour['movement'][c]
+        behaviour['epochs'] = behaviour['epochs'][c]
+
+        behaviour['trial'] = behaviour['trial'][c[behaviour['trial']]]
+        behaviour['trial'] = cum_ctx[behaviour['trial']]
+        behaviour['reward'] = behaviour['reward'][c[behaviour['reward']]]
+        behaviour['reward'] = cum_ctx[behaviour['reward']]
+
+        for h, t in zip(np.flatnonzero(utils.gethead(c)), np.flatnonzero(utils.gethead(c, tail=True))):
+            behaviour['ts'][h:] += behaviour['ts'][t + 1] - behaviour['ts'][h]
+        behaviour['ts'] = behaviour['ts'][c]
+
+        split.append(planepack(spks, iscell, p, behaviour, model, dFF, ops, my_ops, stat))
+
+    return split
 
 # def cafilt(spks, dFF, sustain=5):
 #     """
