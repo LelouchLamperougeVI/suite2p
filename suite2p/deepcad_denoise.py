@@ -26,6 +26,12 @@ def deepcad_denoise(binary, md_path, batch=10_000, tmp_path='/var/tmp/deepcad', 
         params = yaml.safe_load(stream)
     params.update(defaults)
 
+    for root, dirs, files in os.walk(tmp_path, topdown=False): # clean up old files in case previous session crashed
+        for f in files:
+            os.remove(os.path.join(root, f))
+        for d in dirs:
+            os.rmdir(os.path.join(root, d))
+
     if not os.path.exists(params['output_dir']):
         os.makedirs(params['output_dir'])
     if not os.path.exists(params['datasets_path']):

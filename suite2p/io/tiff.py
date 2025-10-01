@@ -136,7 +136,7 @@ def find_mrois(tif):
         rois = int(rois[0])
 
     if not rois:
-        stack = [[frame.shape[1]]] * len(zs)
+        stack = [[frame.shape[1]] for _ in range(len(zs))]
     else:
         rois = re.search('"RoiGroups": {', meta)
         rois = json.loads('{' + meta[rois.start():])

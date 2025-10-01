@@ -223,7 +223,7 @@ def pipeline(f_reg, f_raw=None, f_reg_chan2=None, f_raw_chan2=None,
                     failed = True
                     while failed:
                         try:
-                            model[i, :], _, _, _, _, spks[i, :], _ = extraction.deconvolution.constrained_foopsi(dF[i, :], p=2, verbosity=True, method_deconvolution='oasis', lags=int(np.round(ops['fs']*ops['tau'])))
+                            model[i, :], _, _, _, _, spks[i, :], _ = extraction.deconvolution.constrained_foopsi(dF[i, :], p=2, verbosity=True, method_deconvolution='oasis', lags=int(np.round(ops['fs']*ops['deconv_tau'])))
                             failed = False
                         except:
                             pass
