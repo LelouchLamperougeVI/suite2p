@@ -31,11 +31,7 @@ external_modules = [setuptools.extension.Extension("suite2p.extraction.oasis",
                                                    sources=["suite2p/extraction/oasis.pyx"],
                                                    include_dirs=[np.get_include()],
                                                    language="c++"
-                                                   ),
-                   setuptools.extension.Extension("suite2p.blat.twocol_unique",
-                                                 sources=['suite2p/blat/twocol_unique.pyx'],
-                                                 include_dirs=[np.get_include()],
-                                                 language='c')]
+                                                   )]
 
 try:
     import torch
