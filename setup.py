@@ -25,6 +25,7 @@ install_deps = ["importlib-metadata",
                 "rich",
                 "line_profiler",
                 "deepcad==1.2.0",
+                "libKSG==0.0.3",
                ]
 
 
