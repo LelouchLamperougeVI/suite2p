@@ -24,6 +24,7 @@ install_deps = ["importlib-metadata",
                 "scikit-image",
                 "rich",
                 "line_profiler",
+                "deepcad==1.2.0",
                ]
 
 
