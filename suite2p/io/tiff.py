@@ -9,11 +9,14 @@ import os
 import time
 import re
 from typing import Union, Tuple, Optional
+import warnings
 
 import numpy as np
 from tifffile import imread, TiffFile, TiffWriter
 
 from . import utils
+
+from .recovery import recover_tiff
 
 try:
     from ScanImageTiffReader import ScanImageTiffReader
@@ -90,7 +93,13 @@ def open_tiff(file: str,
         tif = TiffFile(file)
         Ltif = len(tif.pages)
     else:
-        tif = ScanImageTiffReader(file)
+        try:
+            tif = ScanImageTiffReader(file)
+        except:
+            warnings.warn('ScanImage tiff appears to be corrupted, attempting recovery')
+            recovery, count = recover_tiff(file)
+            tif = ScanImageTiffReader(recovery)
+            
         Ltif = 1 if len(tif.shape()) < 3 else tif.shape()[0]  # single page tiffs
     return tif, Ltif
 
