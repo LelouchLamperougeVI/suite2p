@@ -157,12 +157,12 @@ def remap_prob(t):
 
     return gap[0] < gap[1]
 
-def find_remap(T, sigma=2):
+def find_remap(T, sigma=2, alpha=.05):
     '''
     Find remapping events for individual place fields.
     '''
     remap = [[remap_prob(utils.fast_smooth(t, sigma=sigma)) for t in tt] for tt in T]
-    epochs = [[remap_epochs(t) for t in tt] for tt in T]
+    epochs = [[remap_epochs(t, alpha=alpha) for t in tt] for tt in T]
     for i in range(len(remap)):
         for j in range(len(remap[i])):
             if len(epochs[i][j]) == 0:
@@ -218,3 +218,55 @@ def detect_modules(epochs, window=3, alpha=.05):
     modules = [np.array([[c // 10, c % 10] for c in m]) for m in modules]
     return modules
 
+
+def eureka(rasters: np.ndarray, max_overlap: float=.05, min_gain: float=.1,
+           epoch_alpha: float=.05, detection_alpha: float=.05,
+           trials_smooth: float=2., wiggle: int=3):
+    '''
+    Run remapping routine, which entails
+        1. decomposing rasters into place fields X trials vectors,
+        2. finding the trials when remapping occurred for each place field,
+           if they occurred,
+        3. detecting remapping modules.
+
+    Parameters:
+        rasters: ndarray
+            3D matrix of neurons x position x trials.
+        max_overlap: float (default - .05)
+            Maximum overlap between extracted place fields.
+            Overlap calculated as the area overlap between the fitted normal
+            distributions.
+        min_gain: float (default - .1)
+            Minimum increase in explained variance needed to add a new place
+            field to the decomposition.
+        epoch_alpha: float (default - .05)
+            Alpha error rate for detection of remapping epochs.
+        detection_alpha: float (default - .05)
+            General alpha error rate for remapping modules detection.
+        trials_smooth: float (default - 2)
+            Sigma smoothing factor for place field trials activation vectors
+            during remapping detection.
+        wiggle: int (default - 3)
+            Maximum lag in trials between remapping events for modules grouping.
+    '''
+    print("Step 1 - Running HaoRan's made up matrix factorization")
+    P, T, ev = decompose_rasters(rasters, max_overlap=max_overlap, min_gain=min_gain)
+    print("Step 2 - Finding remapping events for individual place fields")
+    remap, epochs = find_remap(T, sigma=trials_smooth, alpha=epoch_alpha)
+    print("Step 3 - Chase down them modules and slap em on the cheeks")
+    modules = detect_modules(epochs, window=wiggle, alpha=detection_alpha)
+    print('all done :)')
+
+    ret = {
+        'decomposition': {
+            'P': P,
+            'T': T,
+            'ev': ev,
+        },
+        'remapping': {
+            'remapped': remap,
+            'epochs': epochs,
+        },
+        'modules': modules,
+    }
+    return ret
