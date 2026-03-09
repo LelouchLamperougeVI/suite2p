@@ -19,6 +19,8 @@ default_ops = {
         'iscell': 'iscell.npy',
         'model': 'model.npy',
         'dFF': 'dFF.npy',
+        'F': 'F.npy',
+        'Fneu': 'Fneu.npy',
         'ops': 'ops.npy',
         'stat': 'stat.npy',
     },
@@ -28,6 +30,7 @@ default_ops = {
         'sigma': 4, # smoothing kernel in cm
         'nboots': 1_000, # number of permutations/bootstraps
         'alpha': .05, # significance level for permutation tests
+        'percentile': 1, # percentile of bootstrapped split-half stability
         'ksg_sigma': 1.0, # smoothing factor for spike trains for KSG SI estimation in seconds
     },
     'bayes': {
@@ -39,6 +42,7 @@ default_ops = {
     'imaging': {
         'flybacks': None, # list of bool, index of flyback planes
         'ca_sustain': .5, # number of sustain frames for cafilt() in seconds
+        'combine_planes': False, # combine all planes
     },
     'behaviour': {
         'missing': None, # list[bool]
@@ -49,7 +53,7 @@ default_ops = {
 }
 
 class planepack():
-    def __init__(self, spks, iscell, plane, behaviour, model, dFF, ops, my_ops, stat):
+    def __init__(self, spks, iscell, plane, behaviour, model, dFF, F, Fneu, ops, my_ops, stat):
         self.behaviour = behaviour
         self.iscell = iscell
         self.spks = spks
@@ -57,6 +61,8 @@ class planepack():
         self.behaviour = behaviour
         self.model = model
         self.dFF = dFF
+        self.F = F
+        self.Fneu = Fneu
         self.ops = my_ops
         self.s2p_ops = ops
         self.stat = stat
@@ -119,13 +125,13 @@ class planepack():
         if permute:
             self.analysis = pc_analysis(self.behaviour, self.spks, bins=self.ops['space']['bins'], \
                                 sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
-                                nboots=self.ops['space']['nboots'], alpha=self.ops['space']['alpha'], \
+                                nboots=self.ops['space']['nboots'], alpha=self.ops['space']['alpha'], prctile=self.ops['space']['percentile'], \
                                 ksg_sigma=self.ops['imaging']['fs'] * self.ops['space']['ksg_sigma'])
             print(str(np.sum(self.analysis['ispc'])) + ' place cells have been detected (' + str(np.mean(self.analysis['ispc']) * 100) + '%).')
         else:
             self.analysis.update(pc_analysis(self.behaviour, self.spks, bins=self.ops['space']['bins'], \
                                 sigma=self.ops['space']['sigma'] * self.ops['space']['bins'] / self.ops['space']['length'], \
-                                nboots=None, alpha=self.ops['space']['alpha']), \
+                                nboots=None, alpha=self.ops['space']['alpha']), prctile=self.ops['space']['percentile'], \
                                 ksg_sigma=self.ops['imaging']['fs'] * self.ops['space']['ksg_sigma'])
 
 
@@ -185,24 +191,62 @@ class blatify():
         self.mkops(ops)
 
         self.plane = []
-        for (i, plane), fly in zip(enumerate(planes), flybacks):
-            if not fly:
-                print('loading', plane)
-                data = self.ops['load'].copy()
-                for key, file in data.items():
-                    data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
-                data['iscell'] = data['iscell'][:, 0].astype(bool)
-                # data['spks'] = cafilt(data['spks'], data['dFF'])
-                data['spks'] = data['spks'][data['iscell'], :]
-                data['dFF'] = data['dFF'][data['iscell'], :]
-                data['model'] = data['model'][data['iscell'], :]
-                data['plane'] = i
-                if self.ops['behaviour']['split_planes']:
-                    data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
-                else:
-                    data['behaviour'] = behaviour
-                data['my_ops'] = self.ops
-                self.plane.append(planepack(**data))
+        if self.ops['imaging']['combine_planes']:
+            print('combining all valid planes, note that only first plane mimg will be preserved')
+            planes_list = []
+            for (i, plane), fly in zip(enumerate(planes), flybacks):
+                if not fly:
+                    print('loading', plane)
+                    data = self.ops['load'].copy()
+                    for key, file in data.items():
+                        data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
+                    data['iscell'] = data['iscell'][:, 0].astype(bool)
+                    data['iscell'] = deadcells(data['F'], data['dFF'], data['Fneu'], data['iscell'])
+                    # data['spks'] = cafilt(data['spks'], data['dFF'])
+                    data['spks'] = data['spks'][data['iscell'], :]
+                    data['dFF'] = data['dFF'][data['iscell'], :]
+                    data['F'] = data['F'][data['iscell'], :]
+                    data['Fneu'] = data['Fneu'][data['iscell'], :]
+                    data['model'] = data['model'][data['iscell'], :]
+                    data['plane'] = i
+                    if self.ops['behaviour']['split_planes']:
+                        data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
+                    else:
+                        data['behaviour'] = behaviour
+                    data['my_ops'] = self.ops
+                    planes_list.append(data)
+
+            for p in planes_list[1:]:
+                planes_list[0]['iscell'] = np.append(planes_list[0]['iscell'], p['iscell'])
+                planes_list[0]['stat'] = np.append(planes_list[0]['stat'], p['stat'])
+                planes_list[0]['spks'] = np.append(planes_list[0]['spks'], p['spks'], axis=0)
+                planes_list[0]['dFF'] = np.append(planes_list[0]['dFF'], p['dFF'], axis=0)
+                planes_list[0]['model'] = np.append(planes_list[0]['model'], p['model'], axis=0)
+            planes_list[0]['behaviour'] = planes_list[len(planes_list) // 2]['behaviour']
+            self.plane.append(planepack(**planes_list[0]))
+        else:
+            for (i, plane), fly in zip(enumerate(planes), flybacks):
+                if not fly:
+                    print('loading', plane)
+                    data = self.ops['load'].copy()
+                    for key, file in data.items():
+                        data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
+                    data['iscell'] = data['iscell'][:, 0].astype(bool)
+                    data['iscell'] = deadcells(data['F'], data['dFF'], data['Fneu'], data['iscell'])
+                    # data['spks'] = cafilt(data['spks'], data['dFF'])
+                    data['spks'] = data['spks'][data['iscell'], :]
+                    data['dFF'] = data['dFF'][data['iscell'], :]
+                    data['F'] = data['F'][data['iscell'], :]
+                    data['Fneu'] = data['Fneu'][data['iscell'], :]
+                    data['model'] = data['model'][data['iscell'], :]
+                    data['plane'] = i
+                    if self.ops['behaviour']['split_planes']:
+                        data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
+                    else:
+                        data['behaviour'] = behaviour
+                    data['my_ops'] = self.ops
+                    self.plane.append(planepack(**data))
+
 
 
 def split_contexts(plane: planepack, contexts: list[int]) -> list[planepack]:
@@ -267,6 +311,24 @@ def split_contexts(plane: planepack, contexts: list[int]) -> list[planepack]:
         split.append(planepack(spks, iscell, p, behaviour, model, dFF, ops, my_ops, stat))
 
     return split
+
+def deadcells(F, dFF, Fneu, iscell):
+    """
+    Find dead cells.
+    """
+    dFF = dFF.astype('uint16')
+    F = F.astype('uint16')
+    Fneu = Fneu.astype('uint16')
+
+    r = np.abs(np.diag(utils.corr(dFF, Fneu, axis=1)))
+    fano = np.var(F, axis=1) / np.mean(Fneu, axis=1)
+
+    dead = (r > .99) | (fano < .01)
+    ndead = np.sum(dead & iscell)
+    if ndead > 0:
+        print('detected ' + str(ndead) + ' dead cells in selected ROIs, removing...')
+
+    return iscell & ~dead
 
 # def cafilt(spks, dFF, sustain=5):
 #     """

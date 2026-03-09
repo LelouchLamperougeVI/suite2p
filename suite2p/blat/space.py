@@ -1,20 +1,12 @@
-"""
-Spatial analyses.
-TODO:
-- Implement SI Skaggs
-- Trials stability place cells detection
-- Burst shuffler
-"""
-
 from . import utils
-# from .KSG import ksg_mi
 from libKSG import KSG
 from multiprocessing import Pool
 import threading
 import numpy as np
+from scipy import stats
 from rich.progress import Progress
 
-def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_000, alpha=.05, ksg_sigma=30) -> dict:
+def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_000, alpha=.05, prctile=1, ksg_sigma=30) -> dict:
     """
     Place cells analysis routine.
     Create heat maps (i.e., rasters and stacks), compute SI
@@ -52,14 +44,15 @@ def pc_analysis(behaviour: dict, spks: np.ndarray, bins=80, sigma=2, nboots=1_00
 
     stability = splithalf(srasters)
     if nboots is None:
-        p_split = np.array([1] * spks.shape[0])
+        p_split = np.array([1,] * spks.shape[0])
     else:
         boot = np.zeros((nboots, srasters.shape[0]))
         for i in range(nboots):
-            sample = np.random.choice(srasters.shape[2], srasters.shape[0], replace=True)
+            sample = np.random.choice(srasters.shape[2], srasters.shape[2], replace=True)
             boot[i, :] = splithalf(srasters[:, :, sample])
-        p_split = np.sum(boot < 0, axis=0) / nboots
-        p_split[p_split == 0] = 1 / nboots
+        boot[np.isnan(boot)] = 0
+        p_split = np.percentile(boot, prctile, axis=0)
+        p_split = stats.norm.sf(p_split, loc=0, scale=np.sqrt(1 / (srasters.shape[1] - 1)))
     p_split[silent] = 1
 
     ispc = (p_SI <= alpha) & (p_split <= alpha)
@@ -108,11 +101,10 @@ def rasterize(spks, pos, trials=None, bins=80):
 
 
 def splithalf(raster):
-    x = np.mean(raster[:, :, ::2], axis=2).T
-    y = np.mean(raster[:, :, 1::2], axis=2).T
-    r = np.sum( (x - np.mean(x, axis=0)) * (y - np.mean(y, axis=0)), axis=0 ) /\
-        np.sqrt( np.sum((x - np.mean(x, axis=0))**2, axis=0) * np.sum((y - np.mean(y, axis=0))**2, axis=0) )
-    return r
+    x = np.mean(raster[:, :, ::2], axis=2)
+    y = np.mean(raster[:, :, 1::2], axis=2)
+    r = utils.corr(x, y, axis=1)
+    return np.diag(r)
 
 
 def _si_initializer():
