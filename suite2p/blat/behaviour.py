@@ -6,6 +6,7 @@ from scipy.cluster.vq import kmeans
 from scipy.optimize import dual_annealing
 from sklearn.cluster import KMeans
 from .utils import fast_smooth, knnsearch, fill_gaps, gethead, corr
+import warnings
 
 
 _template = {
@@ -99,13 +100,12 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
         trial_ids = np.round(trial[trial_idx + 10]).astype(int)
         trial_seq = np.unique(trial_ids)
         trial_seq = np.setdiff1d(trial_seq, [4])
+        trial_idx, trial_ids = _fix_trial_seq(trial_idx, trial_ids, trial_seq)
         ptr = np.flatnonzero(trial_seq == 2)[0]
         idx = []
         for i in np.flatnonzero(trial_ids == trial_seq[0]):
             if len(trial_ids) - i < len(trial_seq) + 1:
                 break
-            if not np.all(trial_ids[i:i + len(trial_seq)] == trial_seq):
-                raise RuntimeError("misordered trial sequence found, check raw trace for errors")
             epochs[ trial_idx[i]:trial_idx[i + ptr] ] = 3
             epochs[ trial_idx[i + ptr]:trial_idx[i + ptr + 1] ] = 2
             epochs[ trial_idx[i + ptr + 1]:trial_idx[i + len(trial_seq)] ] = 3
@@ -388,3 +388,71 @@ def ts_extractor(t, thres=.1, gapless=False, si=10, polarity=None, uniform=False
     heads, tails = np.unique(heads), np.unique(tails)
 
     return heads, tails
+
+
+def _fix_trial_seq(trial_idx, trial_ids, trial_seq):
+    '''
+    Fix corrupted trial sequences.
+    '''
+    match_idx = np.zeros((len(trial_ids),), dtype=bool)
+    i = 0
+    while trial_ids[i] != trial_seq[0]:
+        i += 1
+    while i <= (len(trial_ids) - len(trial_seq)):
+        match_idx[i:i+len(trial_seq)] = np.all(trial_ids[i:i+len(trial_seq)] == trial_seq)
+        i += 1
+        while match_idx[i]:
+            i += 1
+
+    lags = trial_idx[match_idx].reshape(-1, len(trial_seq))
+    lags = np.diff(lags, axis=1)
+    lags, _ = stats.mode(lags, axis=0)
+
+    match_idx |= ~np.isin(trial_ids, trial_seq)
+    if np.any(match_idx):
+        warnings.warn('detected corruption in trials sequence, check wiring, applying posthoc fix...')
+
+    insert_idx = []
+    insert_val = []
+    insert_ids = []
+    i = 0
+    while i < len(match_idx):
+        while match_idx[i]:
+            i += 1
+            if i >= len(match_idx):
+                break
+        write_ptr = i
+        while i < len(match_idx):
+            if match_idx[i]:
+                break
+            if i > write_ptr:
+                if (np.flatnonzero(trial_ids[i - 1] == trial_seq)[0] >= np.flatnonzero(trial_ids[i] == trial_seq)[0]):
+                    break
+            i += 1
+
+        if write_ptr == i:
+            break
+
+        insert_ids += np.setdiff1d(trial_seq, trial_ids[write_ptr:i]).tolist()
+        seq_ptr = 0
+        cum_lag = []
+        while (write_ptr < i):
+            if trial_seq[seq_ptr] != trial_ids[write_ptr]:
+                insert_idx.append(write_ptr)
+                cum_lag.append(0)
+                cum_lag = [l + lags[seq_ptr] for l in cum_lag]
+            else:
+                cum_lag = [trial_idx[write_ptr] - l for l in cum_lag]
+                insert_val += cum_lag
+                cum_lag = []
+                write_ptr += 1
+            seq_ptr += 1
+        if trial_ids[write_ptr - 1] != trial_seq[-1]:
+            cum_lag = np.cumsum(lags[np.flatnonzero(trial_ids[write_ptr - 1] == trial_seq)[0]:])
+            insert_val += (cum_lag + trial_idx[write_ptr - 1]).tolist()
+            insert_idx += [write_ptr,] * len(cum_lag)
+            cum_lag = []
+
+    trial_idx = np.insert(trial_idx, insert_idx, insert_val)
+    trial_ids = np.insert(trial_ids, insert_idx, insert_ids)
+    return trial_idx, trial_ids
