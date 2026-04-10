@@ -44,12 +44,31 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
     """
 
     with h5py.File(fn, 'r') as file:
-        frame = file['Frame'][()]
-        licks = file['Lick'][()]
-        pos = file['Position'][()]
-        reward = file['Reward'][()]
-        trial = file['Trial'][()]
-        fs = file.attrs['samplerate']
+        try:
+            frame = file['Frame'][()]
+            licks = file['Lick'][()]
+            pos = file['Position'][()]
+            reward = file['Reward'][()]
+            trial = file['Trial'][()]
+            fs = file.attrs['samplerate']
+        except:
+            print("\033[91mH5 file corrupted, attempting to recover data...\033[0m")
+            keys = file.keys()
+            good = np.max([file[k].shape[0] for k in keys]) - 1
+            while good >= 0:
+                try:
+                    _ = [file[k][good] for k in keys]
+                    break
+                except:
+                    good -= 1
+
+            good += 1
+            frame = np.array(file['Frame'][:good])
+            licks = np.array(file['Lick'][:good])
+            pos = np.array(file['Position'][:good])
+            reward = np.array(file['Reward'][:good])
+            trial = np.array(file['Trial'][:good])
+            fs = file.attrs['samplerate']
 
     frame_idx, _ = ts_extractor(frame, gapless=True)
     twop_fs = 1 / np.median(np.diff(frame_idx)) * fs # sampling rate of scope
@@ -400,9 +419,7 @@ def _fix_trial_seq(trial_idx, trial_ids, trial_seq):
         i += 1
     while i <= (len(trial_ids) - len(trial_seq)):
         match_idx[i:i+len(trial_seq)] = np.all(trial_ids[i:i+len(trial_seq)] == trial_seq)
-        i += 1
-        while match_idx[i]:
-            i += 1
+        i += len(trial_seq)
 
     lags = trial_idx[match_idx].reshape(-1, len(trial_seq))
     lags = np.diff(lags, axis=1)
@@ -410,7 +427,9 @@ def _fix_trial_seq(trial_idx, trial_ids, trial_seq):
 
     match_idx |= ~np.isin(trial_ids, trial_seq)
     if np.any(match_idx):
-        warnings.warn('detected corruption in trials sequence, check wiring, applying posthoc fix...')
+        print('\033[91mDetected corruption in trials sequence, applying posthoc fix.\033[0m')
+    else:
+        return trial_idx, trial_ids
 
     insert_idx = []
     insert_val = []
