@@ -150,6 +150,8 @@ def permutation_test(spks: np.ndarray, pos: np.ndarray, ksg_sigma=30, nperms=500
     perms = np.array(perms)
 
     p = 1 - np.sum(truth > perms, axis=0) / nperms
+    if type(p) == np.float64:
+        p = np.array([p])
     p[p == 0] = 1 / nperms
 
     return p

@@ -49,6 +49,7 @@ default_ops = {
         'infer': False, # bool
         'block_lengths': None, # needs to be specified if non-uniform frames per block
         'split_planes': True, # whether to split behaviour by plane (set False if mROIs)
+        'crash': None, # list[bool], list behaviour sessions where a crash had occured
     },
 }
 
@@ -172,6 +173,9 @@ class blatify():
             behaviours = infer_motion(ops, behaviours, missing, self.ops['behaviour']['block_lengths'],
                                       [i for i, fly in enumerate(flybacks) if not fly], len(planes),
                                       self.ops['behaviour']['infer'])
+        frames = np.array([len(b['position']) for b in behaviours])
+        if self.ops['behaviour']['split_planes']:
+            frames = frames // len(planes)
         behaviour = stitch(behaviours)
 
         ops = {
@@ -190,32 +194,62 @@ class blatify():
         }
         self.mkops(ops)
 
+        planes_list = []
+        for (i, plane), fly in zip(enumerate(planes), flybacks):
+            if not fly:
+                print('loading', plane)
+                data = self.ops['load'].copy()
+                for key, file in data.items():
+                    data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
+                data['iscell'] = data['iscell'][:, 0].astype(bool)
+                data['iscell'] = deadcells(data['F'], data['dFF'], data['Fneu'], data['iscell'])
+                # data['spks'] = cafilt(data['spks'], data['dFF'])
+                data['spks'] = data['spks'][data['iscell'], :]
+                data['dFF'] = data['dFF'][data['iscell'], :]
+                data['F'] = data['F'][data['iscell'], :]
+                data['Fneu'] = data['Fneu'][data['iscell'], :]
+                data['model'] = data['model'][data['iscell'], :]
+                data['plane'] = i
+                if self.ops['behaviour']['split_planes']:
+                    data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
+                else:
+                    data['behaviour'] = behaviour
+                data['my_ops'] = self.ops
+                planes_list.append(data)
+
+        min_frames = np.min([p['spks'].shape[1] for p in planes_list])
+        for i in range(len(planes_list)):
+            planes_list[i]['spks'] = planes_list[i]['spks'][:, :min_frames]
+            planes_list[i]['dFF'] = planes_list[i]['dFF'][:, :min_frames]
+            planes_list[i]['model'] = planes_list[i]['model'][:, :min_frames]
+
+        if self.ops['behaviour']['crash'] is not None:
+            assert np.sum(self.ops['behaviour']['crash']) < 2, 'only one crashed session allowed'
+            assert len(self.ops['behaviour']['crash']) == len(behaviours), 'crash boolean array must match number of recorded sessions'
+            cum = np.sum(frames[:np.flatnonzero(self.ops['behaviour']['crash'])[0] + 1])
+            offset = np.abs(len(planes_list[i]['behaviour']['position']) - planes_list[i]['spks'].shape[1]) - 1
+            for i in range(len(planes_list)):
+                if len(planes_list[i]['behaviour']['position']) > planes_list[i]['spks'].shape[1]:
+                    idx = np.ones((len(planes_list[i]['behaviour']['position']),), dtype=bool)
+                    idx[cum-offset:cum] = False
+                    planes_list[i]['behaviour']['position'] = planes_list[i]['behaviour']['position'][idx]
+                    planes_list[i]['behaviour']['velocity'] = planes_list[i]['behaviour']['velocity'][idx]
+                    planes_list[i]['behaviour']['movement'] = planes_list[i]['behaviour']['movement'][idx]
+                    planes_list[i]['behaviour']['ts'] = planes_list[i]['behaviour']['ts'][idx]
+                    planes_list[i]['behaviour']['epochs'] = planes_list[i]['behaviour']['epochs'][idx]
+
+                    planes_list[i]['behaviour']['reward'][planes_list[i]['behaviour']['reward'] > (cum-offset)] = planes_list[i]['behaviour']['reward'][planes_list[i]['behaviour']['reward'] > (cum-offset)] - offset
+                    planes_list[i]['behaviour']['trial'][planes_list[i]['behaviour']['trial'] > (cum-offset)] = planes_list[i]['behaviour']['trial'][planes_list[i]['behaviour']['trial'] > (cum-offset)] - offset
+                elif len(planes_list[i]['behaviour']['position']) < planes_list[i]['spks'].shape[1]:
+                    idx = np.ones((planes_list[i]['spks'].shape[1],), dtype=bool)
+                    idx[cum:cum+offset] = False
+                    planes_list[i]['spks'] = planes_list[i]['spks'][:, idx]
+                    planes_list[i]['dFF'] = planes_list[i]['dFF'][:, idx]
+                    planes_list[i]['model'] = planes_list[i]['model'][:, idx]
+
         self.plane = []
         if self.ops['imaging']['combine_planes']:
             print('combining all valid planes, note that only first plane mimg will be preserved')
-            planes_list = []
-            for (i, plane), fly in zip(enumerate(planes), flybacks):
-                if not fly:
-                    print('loading', plane)
-                    data = self.ops['load'].copy()
-                    for key, file in data.items():
-                        data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
-                    data['iscell'] = data['iscell'][:, 0].astype(bool)
-                    data['iscell'] = deadcells(data['F'], data['dFF'], data['Fneu'], data['iscell'])
-                    # data['spks'] = cafilt(data['spks'], data['dFF'])
-                    data['spks'] = data['spks'][data['iscell'], :]
-                    data['dFF'] = data['dFF'][data['iscell'], :]
-                    data['F'] = data['F'][data['iscell'], :]
-                    data['Fneu'] = data['Fneu'][data['iscell'], :]
-                    data['model'] = data['model'][data['iscell'], :]
-                    data['plane'] = i
-                    if self.ops['behaviour']['split_planes']:
-                        data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
-                    else:
-                        data['behaviour'] = behaviour
-                    data['my_ops'] = self.ops
-                    planes_list.append(data)
-
             for p in planes_list[1:]:
                 planes_list[0]['iscell'] = np.append(planes_list[0]['iscell'], p['iscell'])
                 planes_list[0]['stat'] = np.append(planes_list[0]['stat'], p['stat'])
@@ -225,27 +259,8 @@ class blatify():
             planes_list[0]['behaviour'] = planes_list[len(planes_list) // 2]['behaviour']
             self.plane.append(planepack(**planes_list[0]))
         else:
-            for (i, plane), fly in zip(enumerate(planes), flybacks):
-                if not fly:
-                    print('loading', plane)
-                    data = self.ops['load'].copy()
-                    for key, file in data.items():
-                        data[key] = np.load(os.path.join(path, self.ops['files']['subfolder'], plane, file), allow_pickle=True)
-                    data['iscell'] = data['iscell'][:, 0].astype(bool)
-                    data['iscell'] = deadcells(data['F'], data['dFF'], data['Fneu'], data['iscell'])
-                    # data['spks'] = cafilt(data['spks'], data['dFF'])
-                    data['spks'] = data['spks'][data['iscell'], :]
-                    data['dFF'] = data['dFF'][data['iscell'], :]
-                    data['F'] = data['F'][data['iscell'], :]
-                    data['Fneu'] = data['Fneu'][data['iscell'], :]
-                    data['model'] = data['model'][data['iscell'], :]
-                    data['plane'] = i
-                    if self.ops['behaviour']['split_planes']:
-                        data['behaviour'] = extract_plane(behaviour, plane=i, nplanes=len(planes))
-                    else:
-                        data['behaviour'] = behaviour
-                    data['my_ops'] = self.ops
-                    self.plane.append(planepack(**data))
+            for p in planes_list:
+                self.plane.append(planepack(**p))
 
 
 

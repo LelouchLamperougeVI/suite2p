@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import optimize, signal, cluster, stats, special
-from statistics import NormalDist
+from scipy.sparse import linalg
 from multiprocessing import Pool
 from tqdm.auto import tqdm
 import warnings
@@ -60,41 +60,61 @@ def decompose_raster(raster, max_overlap=.2, min_gain=.1):
     such that raster ~ P @ T.
     Assume that place cells are gaussians...
     """
-    mu = np.mean(raster, axis=1)
-    peaks, prop = signal.find_peaks(mu, height=0, width=0)
-    init = [[a, b/2] for a, b, in zip(peaks, prop['widths'])]
-    L = [_loss(x, raster) for x in init]
-    order = np.argsort(L)
-    init = np.array([init[i] for i in order]).flatten()
-    if len(init) == 0:
+    # estimate number of components
+    rk = np.linalg.matrix_rank(raster)
+    if rk == 0:
         warnings.warn('empty raster, nothing to fit')
         P = np.zeros((raster.shape[0], 1))
         T = np.zeros((1, raster.shape[1]))
-        return (P, T), np.nan
+        return (P, T), np.nan, np.array([])
+    _, s, _ = linalg.svds(raster, k=np.min([30, rk, np.min(raster.shape) - 1]))
+    ev = np.cumsum(np.sort(s**2)[::-1]) / np.linalg.norm(raster)**2
+    ncomps = np.flatnonzero(ev > .8) # singular values explain 80%+ variance
+    if len(ncomps) == 0:
+        warnings.warn('raster too noisy, no place fields detected')
+        P = np.zeros((raster.shape[0], 1))
+        T = np.zeros((1, raster.shape[1]))
+        return (P, T), np.nan, np.array([])
+    ncomps = ncomps[0] + 1
+    init = [[raster.shape[0] / ncomps * (i + .5) , raster.shape[0] / ncomps / 4] for i in range(ncomps)]
+    init = np.array(init).flatten() # initialize place fields uniformly
+
+    # fit model by Lagrange-Newton local optimization
+    bounds = [(0, raster.shape[0] - 1), (.1, raster.shape[0] / 4)] * (len(init) // 2)
+    res = optimize.minimize(_loss, bounds=bounds, args=(raster,), x0=init, method='SLSQP')
+    x = res.x
+    P, T = _fit_PT(x, raster)
+
+    R_ = np.zeros((P.shape[0] * T.shape[1],))
+    components = [np.outer(P[:, i], T[i, :]).flatten() for i in range(P.shape[1])]
+
+    overlap = [[np.sum(np.min([P[:, i], P[:, j]], axis=0)) for j in range(P.shape[1])] for i in range(P.shape[1])]
+    overlap /= np.diag(overlap)
 
     ev = [0,]
-    x = []
-    for n_comps in range(1, len(init) // 2 + 1):
-        bounds = [(0, raster.shape[0] - 1), (.1, raster.shape[0] / 4)] * n_comps
-        res = optimize.dual_annealing(_loss, bounds, args=(raster,), x0=init[:n_comps*2], maxiter=300)
-        ev.append(1 - res.fun / np.linalg.norm(raster))
-        x.append(res.x)
-
-        overlap = [[NormalDist(mu=m1, sigma=s1).overlap(NormalDist(mu=m2, sigma=s2)) \
-                    for m1, s1 in zip(x[-1][::2], x[-1][1::2])] for m2, s2 in zip(x[-1][::2], x[-1][1::2])]
-        overlap = np.triu(np.array(overlap), 1)
-        if np.any(overlap > max_overlap):
-            break
+    order = []
+    rejects = []
+    while len(rejects) < P.shape[1]:
+        r2 = np.array([1 - np.var(raster.flatten() - (R_ + c)) / np.var(raster) for c in components])
+        r2[rejects] = -np.inf
+        ev.append(np.max(r2))
         if ev[-1] - ev[-2] < min_gain:
+            ev.pop()
             break
+        order.append(np.argmax(r2))
+        rejects.append(np.argmax(r2))
+        rejects += np.flatnonzero(overlap[order[-1], :] > max_overlap).tolist()
+        rejects = np.unique(rejects).tolist()
+        R_ += components[order[-1]]
 
-    if len(x) == 1:
-        warnings.warn('low explained variance, returning model after one iteration, are you sure this is a place cell?')
-        P, T = _fit_PT(x[-1], raster)
-        return (P, T), ev[-1]
-
-    P, T = _fit_PT(x[-2], raster)
-    return (P, T), ev[-2]
+    x = x.reshape(-1, 2)[order, :].flatten()
+    if len(x) == 0:
+        warnings.warn('fit failed, no place fields detected')
+        P = np.zeros((raster.shape[0], 1))
+        T = np.zeros((1, raster.shape[1]))
+        return (P, T), np.nan, np.array([])
+    P, T = _fit_PT(x, raster)
+    return (P, T), ev[-1], x
 
 def decompose_rasters(rasters, max_overlap=.2, min_gain=.1, parallel=True):
     rasters = copy.deepcopy(rasters)
@@ -108,7 +128,7 @@ def decompose_rasters(rasters, max_overlap=.2, min_gain=.1, parallel=True):
         ret = [decompose_raster(r, max_overlap=max_overlap, min_gain=min_gain) \
                for r in tqdm(rasters, desc='non-negative marginalized Gaussian decomposition')]
 
-    return [P for (P, T), ev in ret], [T for (P, T), ev in ret], [ev for (P, T), ev in ret]
+    return [P for (P, T), ev, x in ret], [T for (P, T), ev, x in ret], [ev for (P, T), ev, x in ret], [x for (P, T), ev, x in ret]
 
 def remap_epochs(t, alpha=.05):
     '''
@@ -250,7 +270,7 @@ def eureka(rasters: np.ndarray, max_overlap: float=.05, min_gain: float=.1,
             Maximum lag in trials between remapping events for modules grouping.
     '''
     print("Step 1 - Running HaoRan's made up matrix factorization")
-    P, T, ev = decompose_rasters(rasters, max_overlap=max_overlap, min_gain=min_gain)
+    P, T, ev, x = decompose_rasters(rasters, max_overlap=max_overlap, min_gain=min_gain)
     print("Step 2 - Finding remapping events for individual place fields")
     remap, epochs = find_remap(T, sigma=trials_smooth, alpha=epoch_alpha)
     print("Step 3 - Chase down them modules and slap em on the cheeks")
@@ -262,6 +282,7 @@ def eureka(rasters: np.ndarray, max_overlap: float=.05, min_gain: float=.1,
             'P': P,
             'T': T,
             'ev': ev,
+            'x': x,
         },
         'remapping': {
             'remapped': remap,

@@ -3,23 +3,22 @@ from suite2p.blat.utils import fast_smooth, accumarray
 from sklearn import metrics
 from scipy.ndimage import gaussian_filter
 from scipy import stats
-from joblib import Parallel, delayed
+from multiprocessing import Pool
+from tqdm.auto import tqdm
 
-def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10):
+def _cv_unpack(args):
+    return crossvalidate(*args)
+
+def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10, margin=.1):
     """
     Use this to sample-match n for decoding.
     """
-    def job(i):
-        sample = np.random.choice(n.shape[0], nsize)
-        ret = crossvalidate(x, n[sample, :], bins=bins, dt=dt, sigma=sigma, k=k)
-        return ret['error']['overall'], ret['error']['error'], ret['error']['sem']
-
-    ret = Parallel(n_jobs=-1, backend='threading')(delayed(job)(i) for i in range(nboots))
-    error = np.array([r[0] for r in ret])
-    mu = np.array([r[1] for r in ret])
-    sem = np.array([r[2] for r in ret])
-
-    return error, mu, sem
+    with Pool() as pool:
+            ret = list(tqdm(pool.imap(_cv_unpack, ((x,
+                                                    n[np.random.choice(n.shape[0], nsize, replace=False), :],
+                                                    bins, dt, sigma, k, None, margin) for _ in range(nboots))),
+                            total=nboots, desc='sample-matched bayesian decoding'))
+    return ret
 
 
 def crossvalidate(x: np.ndarray, n: np.ndarray, bins=80, dt=15, sigma=2, k=10, cv=None, margin=.1, mode='loo'):

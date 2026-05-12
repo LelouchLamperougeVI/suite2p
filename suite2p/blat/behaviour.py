@@ -139,6 +139,8 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
     trial_idx = knnsearch(frame_idx, trial_idx)
     # licks_idx = knnsearch(frame_idx, licks_idx)
 
+    pos[(pos > normalize) & (epochs == 2)] = normalize
+
     # decimate
     behaviour = behaviour_template()
     behaviour.update({

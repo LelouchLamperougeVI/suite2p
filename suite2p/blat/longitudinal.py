@@ -40,7 +40,7 @@ def mask2stats(mask):
     return stats
 
 
-def crossdays(planes: list) -> list:
+def crossdays(planes: list, cells_only=True) -> list:
     """
     This is the main registeration method.
     Takes as input a list of planepack objects.
@@ -50,8 +50,11 @@ def crossdays(planes: list) -> list:
     if (np.unique(Ly).shape[0] > 1) | (np.unique(Lx).shape[0] > 1):
         raise ValueError("Inconsistent pixel resolutions across recordings. Are you should these are the same experiments?")
 
-    # stats = [p.stat[p.iscell] for p in planes]
-    stats = [mask2stats(p.mask) for p in planes]
+    # stats = [mask2stats(p.mask) for p in planes]
+    if cells_only:
+        stats = [p.stat[p.iscell] for p in planes]
+    else:
+        stats = [p.stat for p in planes]
     idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in tqdm(stats)]
     # idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in stats]
     return idx

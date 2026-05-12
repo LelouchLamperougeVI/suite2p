@@ -103,9 +103,9 @@ def extract_traces(f_in, cell_masks, neuropil_masks, batch_size=500):
         # extract traces and neuropil
 
         # (WITHOUT NUMBA)
-        #for n in range(ncells):
-        #    F[n,inds] = np.dot(data[:, cell_masks[n][0]], cell_masks[n][1])
-        #Fneu[:,inds] = np.dot(neuropil_masks , data.T)
+        # for n in range(ncells):
+        #    F[n, inds] = np.dot(data[:, cell_ipix[n]], cell_lam[n])
+        #    Fneu[n, inds] = data[:, neuropil_ipix[n]].sum(axis=1) / neuropil_npix[n]
 
         # WITH NUMBA
         F[:, inds] = matmul_traces(Fi, data, cell_ipix, cell_lam)

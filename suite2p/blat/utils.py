@@ -45,6 +45,8 @@ def gethead(x, tail=False):
     heads = np.diff(x.astype(bool).astype(int))
     heads = heads > 0
     heads = np.insert(heads, 0, False)
+    if x[0].astype(bool):
+        heads[0] = True
     return heads
 
 
