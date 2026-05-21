@@ -40,7 +40,7 @@ def mask2stats(mask):
     return stats
 
 
-def crossdays(planes: list, cells_only=True) -> list:
+def crossdays(planes: list, cells_only=True, thres=.25) -> list:
     """
     This is the main registeration method.
     Takes as input a list of planepack objects.
@@ -55,12 +55,12 @@ def crossdays(planes: list, cells_only=True) -> list:
         stats = [p.stat[p.iscell] for p in planes]
     else:
         stats = [p.stat for p in planes]
-    idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in tqdm(stats)]
+    idx = [[regmasks(a, b, Ly[0], Lx[0], thres=thres)[0] for b in stats] for a in tqdm(stats)]
     # idx = [[regmasks(a, b, Ly[0], Lx[0])[0] for b in stats] for a in stats]
     return idx
 
 
-def regmasks(fixed, moving, Ly, Lx):
+def regmasks(fixed, moving, Ly, Lx, thres=.25):
     fixed_stat = fixed
     mov_stat = moving
     fixed = mkmask(fixed, Ly, Lx)
@@ -68,13 +68,13 @@ def regmasks(fixed, moving, Ly, Lx):
 
     _, rot, drifty, driftx = register(fixed, moving)
     mov_stat = lintransform(mov_stat, Ly, Lx, rot, drifty, driftx)
-    match, dist = jaccard(fixed_stat, mov_stat)
+    match, dist = jaccard(fixed_stat, mov_stat, thres=thres)
 
     return match, dist
 
 
-# def jaccard(fixed, moving, thres=.25):
-def jaccard(fixed, moving, thres=0.0):
+def jaccard(fixed, moving, thres=.25):
+# def jaccard(fixed, moving, thres=0.0):
     dist = np.zeros(moving.shape)
     match = np.empty(moving.shape)
     match.fill(np.nan)
@@ -95,7 +95,7 @@ def jaccard(fixed, moving, thres=0.0):
         dist[i] = d[idx]
         if d[idx] > thres:
             match[i] = m[idx]
-            
+
     return match, dist
 
 
@@ -138,7 +138,7 @@ def register(fixed, moving, twostep=True, maxIter=100):
             drifty += y
             driftx += x
             it += 1
-        
+
         if it == maxIter:
             print('Maximum iterations reached. Registration did not converge.')
         # else:
@@ -166,11 +166,11 @@ def trans_reg(fixed, moving, shift=.2):
     N = fixed.shape[1]
     shifty = np.round(M * shift).astype(int)
     shiftx = np.round(N * shift).astype(int)
-    
+
     corr = fftconvolve((fixed+1).astype(bool), np.flip((moving+1).astype(bool)))
     corr = corr[(M - shifty):(M + shifty + 1), :]
     corr = corr[:, (N - shiftx):(N + shiftx + 1)]
-    
+
     drifty, driftx = np.unravel_index(np.argmax(corr), corr.shape)
     drifty -= shifty + 1
     driftx -= shiftx + 1
@@ -186,7 +186,7 @@ def polar_reg(fixed, moving, shift=15):
     radius = np.floor(np.min(fixed.shape) / 2)
     warped_fixed = warp_polar(fixed+1, radius=radius, scaling="log").astype(bool)
     warped_moving = warp_polar(moving+1, radius=radius, scaling="log").astype(bool)
-    
+
     scale = np.arange(1, radius+1) / radius
     rot = np.arange(-shift, shift+1)
     score = np.empty_like(rot)
