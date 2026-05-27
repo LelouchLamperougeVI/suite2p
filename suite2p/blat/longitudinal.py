@@ -197,3 +197,67 @@ def polar_reg(fixed, moving, shift=15):
     rot = -rot[np.argmax(score)]
     moving = transform(moving, rot=rot)
     return moving, rot
+
+
+
+def simple_reg(fixed, moving):
+    '''
+    A much simpler registration algo that works better when there are fewer ROIs.
+    '''
+    # find ROIs centroids
+    centf = np.array([[np.mean(s['ypix']), np.mean(s['xpix'])] for s in fixed])
+    centm = np.array([[np.mean(s['ypix']), np.mean(s['xpix'])] for s in moving])
+    # centf = np.array([np.mean(np.array(np.nonzero(fixed == i)), axis=1) for i in np.unique(fixed)[1:]])
+    # centm = np.array([np.mean(np.array(np.nonzero(moving == i)), axis=1) for i in np.unique(moving)[1:]])
+    centf = centf[:, :, np.newaxis]
+    centm = (centm.T)[np.newaxis, :, :]
+
+    if centf.shape[0] < centm.shape[2]:
+        ret = simple_reg(moving, fixed)
+        idx = np.zeros((centf.shape[0], centm.shape[2]))
+        for i, r in enumerate(ret):
+            if ~np.isnan(r):
+                idx[int(r), i] = 1
+        match = [np.flatnonzero(c)[0] if len(np.flatnonzero(c)) > 0 else np.nan for c in idx]
+        return np.array(match)
+
+    # find minimum distance to ROIs in moving mask
+    delta = centf - centm
+    d = np.sum(delta**2, axis=1)
+    idx = np.argmin(d, axis=0)
+    coor = delta[idx, :, np.arange(d.shape[1])]
+
+    if centm.shape[2] == 1:
+        ret = np.zeros((centf.shape[0],)) * np.nan
+        ret[idx] = 0
+        return ret
+
+    # estimate DBSCAN parameters
+    min_samples=np.min([coor.shape[0], 3])
+    eps = np.sqrt(np.sum((coor[:, :, np.newaxis] - (coor.T)[np.newaxis, :, :])**2, axis=1))
+    eps = eps[np.triu(np.ones(eps.shape, dtype=bool), 1)]
+    eps = np.sort(eps)[min_samples - 1] * 10
+    eps = np.max([eps, .1])
+
+    # use DBSCAN to find cluster of offsets and estimate translation offset
+    clusts = cluster.DBSCAN(eps=eps, min_samples=min_samples).fit(coor)
+    clusts = clusts.labels_
+    idx = clusts == np.argmax([np.sum(clusts == c) for c in range(np.max(clusts) + 1)])
+    shift = np.median(coor[idx, :], axis=0)
+
+    # apply translation and reidentify clustering to find matching ROIs
+    delta = centf - (centm + shift[np.newaxis, :, np.newaxis])
+    d = np.sum(delta**2, axis=1)
+    idx = np.argmin(d, axis=0)
+    coor = delta[idx, :, np.arange(d.shape[1])]
+
+    clusts = cluster.DBSCAN(eps=eps, min_samples=min_samples).fit(coor)
+    clusts = clusts.labels_
+    clusts = clusts == np.argmax([np.sum(clusts == c) for c in range(np.max(clusts) + 1)])
+
+    # et voila!
+    match = np.zeros((centf.shape[0],))
+    match *= np.nan
+    match[idx[clusts]] = np.arange(centm.shape[2])[clusts]
+
+    return match
