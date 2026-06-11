@@ -25,16 +25,20 @@ def behaviour_template():
     return copy.deepcopy(_template)
 
 def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
-                      normalize: float = 180.0, bit_res: int = 12) -> dict:
+                      normalize: float = 180.0, bit_res: int = 12,
+                      keys_dict=None, voltage_max=10.0, mini2p=False) -> dict:
     """
     Extract behaviour from ScanImage HDF5 file.
 
     Params
     ------
-    fn          full path to .h5 file
-    v_range     voltage range for position
-    normalize   convert voltages to cm for position
-    bit_res     bit resolution of position output
+    fn             full path to .h5 file
+    v_range        voltage range for position
+    normalize      convert voltages to cm for position
+    bit_res        bit resolution of position output
+    keys_dict      which keys to use for H5 variables
+    voltage_max    voltage scaling
+    mini2p         True/False mini2p mode
 
     Return
     ------
@@ -43,13 +47,22 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
                 and 'fs'
     """
 
+    if keys_dict is None:
+        keys_dict = {
+            'Frame': 'Frame',
+            'Lick': 'Lick',
+            'Position': 'Position',
+            'Reward': 'Reward',
+            'Trial': 'Trial',
+        }
+
     with h5py.File(fn, 'r') as file:
         try:
-            frame = file['Frame'][()]
-            licks = file['Lick'][()]
-            pos = file['Position'][()]
-            reward = file['Reward'][()]
-            trial = file['Trial'][()]
+            frame = file[keys_dict['Frame']][()]
+            licks = file[keys_dict['Lick']][()] / voltage_max * v_range[1]
+            pos = file[keys_dict['Position']][()] / voltage_max * v_range[1]
+            reward = file[keys_dict['Reward']][()] / voltage_max * v_range[1]
+            trial = file[keys_dict['Trial']][()] / voltage_max * v_range[1]
             fs = file.attrs['samplerate']
         except:
             print("\033[91mH5 file corrupted, attempting to recover data...\033[0m")
@@ -63,11 +76,11 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
                     good -= 1
 
             good += 1
-            frame = np.array(file['Frame'][:good])
-            licks = np.array(file['Lick'][:good])
-            pos = np.array(file['Position'][:good])
-            reward = np.array(file['Reward'][:good])
-            trial = np.array(file['Trial'][:good])
+            frame = np.array(file[keys_dict['Frame']][:good])
+            licks = np.array(file[keys_dict['Lick']][:good]) / voltage_max * v_range[1]
+            pos = np.array(file[keys_dict['Position']][:good]) / voltage_max * v_range[1]
+            reward = np.array(file[keys_dict['Reward']][:good]) / voltage_max * v_range[1]
+            trial = np.array(file[keys_dict['Trial']][:good]) / voltage_max * v_range[1]
             fs = file.attrs['samplerate']
 
     frame_idx, _ = ts_extractor(frame, gapless=True)
@@ -100,9 +113,14 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
     mvt = detect_mvt(vel, gaps=.25, fs=fs, prioritize='movement')
 
     # convert cumulative to raw positions from trials
-    trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive', uniform=True)
     epochs = np.zeros_like(pos)
-    reward_idx, _ = ts_extractor(reward, thres=2, polarity='positive')
+    if mini2p:
+        reward_idx, _ = ts_extractor(trial, thres=4.5, polarity='positive')
+        trial[trial > 2.1] = 0
+        trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive', uniform=True)
+    else:
+        reward_idx, _ = ts_extractor(reward, thres=2, polarity='positive')
+        trial_idx, _ = ts_extractor(trial, si=5e3, thres=.5, polarity='positive', uniform=True)
     if reward_idx.shape[0] < 2:
         reward_idx = np.array([])
     if (trial_idx.shape[0] == 2) & (reward_idx.shape[0] == 0):
@@ -111,14 +129,12 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
         trial_idx = np.array([])
     elif trial_idx.shape[0] > 2:
         print("automatically detected run session")
-        # epochs[trial_idx[0]:trial_idx[-1]] = 2
-        # trial_idx = trial_idx[:-1]
         for t in trial_idx:
             pos[t:] -= pos[t]
 
         trial_ids = np.round(trial[trial_idx + 10]).astype(int)
         trial_seq = np.unique(trial_ids)
-        trial_seq = np.setdiff1d(trial_seq, [4])
+        trial_seq = np.setdiff1d(trial_seq, [4,])
         trial_idx, trial_ids = _fix_trial_seq(trial_idx, trial_ids, trial_seq)
         ptr = np.flatnonzero(trial_seq == 2)[0]
         idx = []
@@ -145,8 +161,8 @@ def extract_behaviour(fn: str, v_range: list[float] = [-10.0, 10.0],
     behaviour = behaviour_template()
     behaviour.update({
         # 'licks': licks_idx,
-        'reward': reward_idx,
-        'trial': trial_idx,
+        'reward': reward_idx.astype(int),
+        'trial': trial_idx.astype(int),
         'position': pos[frame_idx],
         'velocity': vel[frame_idx],
         'movement': mvt[frame_idx],
@@ -477,3 +493,5 @@ def _fix_trial_seq(trial_idx, trial_ids, trial_seq):
     trial_idx = np.insert(trial_idx, insert_idx, insert_val)
     trial_ids = np.insert(trial_ids, insert_idx, insert_ids)
     return trial_idx, trial_ids
+
+

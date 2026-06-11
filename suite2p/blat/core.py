@@ -50,6 +50,8 @@ default_ops = {
         'block_lengths': None, # needs to be specified if non-uniform frames per block
         'split_planes': True, # whether to split behaviour by plane (set False if mROIs)
         'crash': None, # list[bool], list behaviour sessions where a crash had occured
+        'mini2p': False, # bool
+        'contexts': None, # list[int], list of trial blocks with # of reps
     },
 }
 
@@ -67,6 +69,7 @@ class planepack():
         self.ops = my_ops
         self.s2p_ops = ops
         self.stat = stat
+        self.contexts = None
 
         self.imaging()
         self.pc_analysis()
@@ -152,7 +155,10 @@ class blatify():
 
     def load(self, path):
         files = os.listdir(path)
-        beh_files = sorted([f for f in files if re.search('^behaviour_\d+.h5$', f)])
+        if self.ops['behaviour']['mini2p']:
+            beh_files = sorted([f for f in files if re.search('^treadmill_d_\d+.h5$', f)])
+        else:
+            beh_files = sorted([f for f in files if re.search('^behaviour_\d+.h5$', f)])
         print('found', len(beh_files), 'behaviour files:', beh_files)
         planes = os.listdir(os.path.join(path, 'suite2p'))
         planes = sorted([f for f in planes if re.search('^plane\d+$', f)])
@@ -165,7 +171,19 @@ class blatify():
         behaviours = []
         for beh in beh_files:
             print('extracting behaviour', beh)
-            behaviours.append(extract_behaviour(os.path.join(path, beh), normalize=self.ops['space']['length']))
+            if self.ops['behaviour']['mini2p']:
+                print('mini2p behaviour extraction')
+                keys_dict = {
+                                'Frame': 'frame_analog_clock',
+                                'Lick': 'reward',
+                                'Position': 'treadmill_epoch',
+                                'Reward': 'reward',
+                                'Trial': 'treadmill_position',
+                            }
+                behaviours.append(extract_behaviour(fn=os.path.join(path, beh), normalize=self.ops['space']['length'],
+                                                    v_range=[0., 5], keys_dict=keys_dict, voltage_max=4.334, mini2p=True))
+            else:
+                behaviours.append(extract_behaviour(os.path.join(path, beh), normalize=self.ops['space']['length']))
         if self.ops['behaviour']['missing'] is not None or self.ops['behaviour']['infer']:
             missing = self.ops['behaviour']['missing'] if self.ops['behaviour']['missing'] is not None else [False,] * len(behaviours)
             ops = [np.load(os.path.join(path, self.ops['files']['subfolder'], plane, self.ops['load']['ops']), allow_pickle=True)
@@ -258,74 +276,143 @@ class blatify():
                 planes_list[0]['model'] = np.append(planes_list[0]['model'], p['model'], axis=0)
             planes_list[0]['behaviour'] = planes_list[len(planes_list) // 2]['behaviour']
             self.plane.append(planepack(**planes_list[0]))
+            if self.ops['behaviour']['contexts'] is not None:
+                print('=== splitting contexts ===')
+                planes = split_contexts(self.plane[0], self.ops['behaviour']['contexts'])
+                self.plane[0].contexts = planes
         else:
             for p in planes_list:
                 self.plane.append(planepack(**p))
+                if self.ops['behaviour']['contexts'] is not None:
+                    print('=== splitting contexts ===')
+                    planes = split_contexts(self.plane[-1], self.ops['behaviour']['contexts'])
+                    self.plane[-1].contexts = planes
 
 
+def split_contexts(plane, blocks=[5, 5]):
+    behaviour = copy.deepcopy(plane.behaviour)
 
-def split_contexts(plane: planepack, contexts: list[int]) -> list[planepack]:
-    """
-    Split planepack object into separate contexts.
+    trials = behaviour['trial']
+    x = behaviour['position']
 
-    Inputs:
-    =======
-    plane (planepack)
-        planepack object to be split by context
-
-    contexts (list of int)
-        list of length equal to the number of contexts with
-        the number of repeated trials per context
-
-    Returns:
-    ========
-    split (list of planepack)
-        list containing an instance of planepack for each context
-    """
-    trials = np.zeros_like(plane.behaviour['position'])
-    trials[plane.behaviour['trial']] = 1
-    trials = np.cumsum(trials)
-    trials = (trials - 1) % np.sum(contexts)
-    preserve = plane.behaviour['epochs'] < 2
-
-    contexts.insert(0, 0)
-    ctx_idx = [np.isin(trials, np.arange(a, a+b)) for a, b in zip(contexts[:-1], contexts[1:])]
-    ctx_idx = [c | preserve for c in ctx_idx]
+    context = np.zeros_like(x) - 1
+    counter = 0
+    tracker = 0
+    for h, t in zip(trials[:-1], trials[1:]):
+        context[h:t] = tracker
+        if (counter + 1) == blocks[tracker]:
+            tracker = (tracker + 1) % len(blocks)
+        counter = (counter + 1) % blocks[tracker]
 
     split = []
-    for i, c in enumerate(ctx_idx):
-        cum_ctx = np.cumsum(c)
+    for i in range(len(blocks)):
+        idx = (context == i) | (context == -1)
+        position = behaviour['position'][idx]
+        velocity = behaviour['velocity'][idx]
+        movement = behaviour['movement'][idx]
+        epochs = behaviour['epochs'][idx]
+        ts = np.arange(len(position)) / behaviour['fs']
 
-        iscell = plane.iscell
+        trial = np.zeros_like(x, dtype=bool)
+        trial[trials] = True
+        trial &= idx
+        reward = np.zeros_like(x, dtype=bool)
+        reward[behaviour['reward']] = True
+        reward &= idx
+
+        beh = {
+            'licks': behaviour['licks'],
+            'position': position,
+            'velocity': velocity,
+            'movement': movement,
+            'epochs': epochs,
+            'ts': ts,
+            'fs': behaviour['fs'],
+            'trial': np.flatnonzero(trial[idx]),
+            'reward': np.flatnonzero(reward[idx]),
+        }
+
+        iscell = copy.deepcopy(plane.iscell)
+        spks = copy.deepcopy(plane.spks[:, idx])
+        model = copy.deepcopy(plane.model[:, idx])
+        dFF = copy.deepcopy(plane.dFF[:, idx])
+        F = copy.deepcopy(plane.F[:, idx])
+        Fneu = copy.deepcopy(plane.Fneu[:, idx])
         p = plane.plane
         ops = plane.s2p_ops
         my_ops = copy.deepcopy(plane.ops)
         my_ops['context'] = i
         stat = plane.stat
 
-        spks = copy.deepcopy(plane.spks[:, c])
-        model = copy.deepcopy(plane.model[:, c])
-        dFF = copy.deepcopy(plane.dFF[:, c])
-
-        behaviour = copy.deepcopy(plane.behaviour)
-        behaviour['reward'] = behaviour['reward'].astype(int) # weird bug
-        behaviour['position'] = behaviour['position'][c]
-        behaviour['velocity'] = behaviour['velocity'][c]
-        behaviour['movement'] = behaviour['movement'][c]
-        behaviour['epochs'] = behaviour['epochs'][c]
-
-        behaviour['trial'] = behaviour['trial'][c[behaviour['trial']]]
-        behaviour['trial'] = cum_ctx[behaviour['trial']]
-        behaviour['reward'] = behaviour['reward'][c[behaviour['reward']]]
-        behaviour['reward'] = cum_ctx[behaviour['reward']]
-
-        for h, t in zip(np.flatnonzero(utils.gethead(c)), np.flatnonzero(utils.gethead(c, tail=True))):
-            behaviour['ts'][h:] += behaviour['ts'][t + 1] - behaviour['ts'][h]
-        behaviour['ts'] = behaviour['ts'][c]
-
-        split.append(planepack(spks, iscell, p, behaviour, model, dFF, ops, my_ops, stat))
+        split.append(planepack(spks, iscell, p, beh, model, dFF, F, Fneu, ops, my_ops, stat))
 
     return split
+
+# def split_contexts(plane: planepack, contexts: list[int]) -> list[planepack]:
+#     """
+#     Split planepack object into separate contexts.
+
+#     Inputs:
+#     =======
+#     plane (planepack)
+#         planepack object to be split by context
+
+#     contexts (list of int)
+#         list of length equal to the number of contexts with
+#         the number of repeated trials per context
+
+#     Returns:
+#     ========
+#     split (list of planepack)
+#         list containing an instance of planepack for each context
+#     """
+#     trials = np.zeros_like(plane.behaviour['position'])
+#     trials[plane.behaviour['trial']] = 1
+#     trials = np.cumsum(trials)
+#     trials = (trials - 1) % np.sum(contexts)
+#     preserve = plane.behaviour['epochs'] < 2
+
+#     contexts.insert(0, 0)
+#     ctx_idx = [np.isin(trials, np.arange(a, a+b)) for a, b in zip(contexts[:-1], contexts[1:])]
+#     ctx_idx = [c | preserve for c in ctx_idx]
+
+#     split = []
+#     for i, c in enumerate(ctx_idx):
+#         cum_ctx = np.cumsum(c)
+
+#         iscell = plane.iscell
+#         p = plane.plane
+#         ops = plane.s2p_ops
+#         my_ops = copy.deepcopy(plane.ops)
+#         my_ops['context'] = i
+#         stat = plane.stat
+
+#         spks = copy.deepcopy(plane.spks[:, c])
+#         model = copy.deepcopy(plane.model[:, c])
+#         dFF = copy.deepcopy(plane.dFF[:, c])
+#         F = copy.deepcopy(plane.F[:, c])
+#         Fneu = copy.deepcopy(plane.Fneu[:, c])
+
+#         behaviour = copy.deepcopy(plane.behaviour)
+#         behaviour['reward'] = behaviour['reward'].astype(int) # weird bug
+#         behaviour['position'] = behaviour['position'][c]
+#         behaviour['velocity'] = behaviour['velocity'][c]
+#         behaviour['movement'] = behaviour['movement'][c]
+#         behaviour['epochs'] = behaviour['epochs'][c]
+
+#         behaviour['trial'] = behaviour['trial'][c[behaviour['trial']]]
+#         behaviour['trial'] = cum_ctx[behaviour['trial']]
+#         behaviour['reward'] = behaviour['reward'][c[behaviour['reward']]]
+#         behaviour['reward'] = cum_ctx[behaviour['reward']]
+
+#         # for h, t in zip(np.flatnonzero(utils.gethead(c)), np.flatnonzero(utils.gethead(c, tail=True))):
+#         #     behaviour['ts'][h:] += behaviour['ts'][t + 1] - behaviour['ts'][h]
+#         # behaviour['ts'] = behaviour['ts'][c]
+#         behaviour['ts'] = np.arange(np.sum(c)) / behaviour['fs']
+
+#         split.append(planepack(spks, iscell, p, behaviour, model, dFF, F, Fneu, ops, my_ops, stat))
+
+#     return split
 
 def deadcells(F, dFF, Fneu, iscell):
     """

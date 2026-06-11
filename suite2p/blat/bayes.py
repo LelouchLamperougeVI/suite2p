@@ -9,14 +9,14 @@ from tqdm.auto import tqdm
 def _cv_unpack(args):
     return crossvalidate(*args)
 
-def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10, margin=.1):
+def subsample(x, n, nsize=20, nboots=500, bins=80, dt=15, sigma=2, k=10, cv=None, margin=.1):
     """
     Use this to sample-match n for decoding.
     """
     with Pool() as pool:
             ret = list(tqdm(pool.imap(_cv_unpack, ((x,
                                                     n[np.random.choice(n.shape[0], nsize, replace=False), :],
-                                                    bins, dt, sigma, k, None, margin) for _ in range(nboots))),
+                                                    bins, dt, sigma, k, cv, margin) for _ in range(nboots))),
                             total=nboots, desc='sample-matched bayesian decoding'))
     return ret
 
