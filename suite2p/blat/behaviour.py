@@ -240,11 +240,15 @@ def infer_motion(ops: list[dict], behaviours: list[dict], missing: list[bool] | 
 
     ops = [o[()] for o in ops]
     ops = [np.sqrt(np.diff(o['xoff'])**2 + np.diff(o['yoff'])**2) for o in ops]
+    max_len = np.min([o.shape[0] for o in ops])
+    ops = [o[:max_len] for o in ops]
     for i in range(len(ops)):
         ops[i] = np.insert(ops[i], 0, [ops[i][0]])
     temp = np.empty((ops[0].shape[0] * len(ops),))
+    # temp = np.empty((np.sum([o.shape[0] for o in ops]),))
     for i, d in enumerate(ops):
         temp[i::len(ops)] = d
+        # temp[i:len(d)*len(ops):len(ops)] = d
     drift = temp
 
     vel = np.concatenate([b['velocity'] for b in behaviours], axis=0)

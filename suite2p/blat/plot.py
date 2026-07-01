@@ -161,9 +161,9 @@ def stack(analysis, pc_only=True, evenodd=True, ispc=None, length=180.0):
     return fig
 
 
-def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None, contex=None):
+def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hline=None, contexts=None):
     plt.rcParams['figure.figsize'] = [6.5, 6.5]
-    
+
     # length = np.max(analysis.behaviour['position'][analysis.behaviour['movement']])
     laps = analysis['smooth']['rasters'].shape[2]
     # analysis = analysis.analysis
@@ -174,6 +174,19 @@ def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hli
             ispc = np.ones_like(analysis['ispc']).astype(bool)
 
     rasters = analysis['smooth']['rasters'][ispc, :, :]
+    rasters = rasters / np.ptp(rasters, axis=(1, 2), keepdims=True)
+    cmap = 'gray'
+    vmin = 0
+    if contexts is not None:
+        idx = np.tile(np.repeat(np.arange(len(contexts)), contexts), np.ceil(rasters.shape[2] / np.sum(contexts)).astype(int))
+        idx = idx[:rasters.shape[2]]
+        temp = np.zeros_like(rasters)
+        for i in np.unique(idx):
+            c = (i % 2 - .5) * 2
+            temp[:, :, np.sort(idx) == i] = c * rasters[:, :, idx == i]
+        rasters = temp
+        cmap = 'RdBu'
+        vmin = -1
     stack = analysis['smooth']['stack'][ispc, :]
     if sort:
         SI = analysis['SI'][ispc]
@@ -189,8 +202,9 @@ def rasters(analysis, k=8, pc_only=True, ispc=None, length=180.0, sort=True, hli
 
     fig, axs = plt.subplots(k, k)
     for i, ax in zip(order, axs.flat):
-        ax.imshow(-rasters[i, :, :].T, cmap='gray', aspect='auto', \
-                  extent=[0, length, laps, 1], interpolation='none')
+        ax.imshow(-rasters[i, :, :].T, cmap=cmap, aspect='auto', \
+                  extent=[0, length, laps, 1], interpolation='none', \
+                  vmin=vmin, vmax=1)
         ax.set_title(str(ispc[i]), fontdict={'fontsize': 8})
         if hline is not None:
             ax.hlines(hline, 0, length, colors='black')

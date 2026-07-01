@@ -240,6 +240,8 @@ class blatify():
             planes_list[i]['spks'] = planes_list[i]['spks'][:, :min_frames]
             planes_list[i]['dFF'] = planes_list[i]['dFF'][:, :min_frames]
             planes_list[i]['model'] = planes_list[i]['model'][:, :min_frames]
+            planes_list[i]['F'] = planes_list[i]['F'][:, :min_frames]
+            planes_list[i]['Fneu'] = planes_list[i]['Fneu'][:, :min_frames]
 
         if self.ops['behaviour']['crash'] is not None:
             assert np.sum(self.ops['behaviour']['crash']) < 2, 'only one crashed session allowed'
